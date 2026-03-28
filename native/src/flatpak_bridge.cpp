@@ -1,7 +1,9 @@
 // flatpak_bridge.cpp — C ABI entry points, init, and update monitor.
 
 #include "flatpak_bridge.h"
+
 #include <flatpak/flatpak.h>
+
 #include <cstring>
 
 // ── Post helpers (local to this TU) ─────────────────────────────────────────
@@ -18,8 +20,9 @@ void post_update_event(Dart_Port port) {
     obj.value.as_external_typed_data.length = 1;
     obj.value.as_external_typed_data.data = buf;
     obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback =
-        [](void*, void* peer) { delete[] static_cast<uint8_t*>(peer); };
+    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
+        delete[] static_cast<uint8_t*>(peer);
+    };
 
     Dart_PostCObject_DL(port, &obj);
 }
@@ -33,16 +36,15 @@ void post_update_event(Dart_Port port) {
 // Works from any host process; no D-Bus portal, no sandbox required.
 
 struct MonitorHandle {
-    Dart_Port           port;
+    Dart_Port port;
     FlatpakInstallation* installation;
-    gulong              signal_id;
-    GMainContext*       context;
-    GMainLoop*          loop;
-    GThread*            thread;
+    gulong signal_id;
+    GMainContext* context;
+    GMainLoop* loop;
+    GThread* thread;
 };
 
-static gboolean on_monitor_changed(FlatpakInstallation* /*inst*/,
-                                    gpointer user_data) {
+static gboolean on_monitor_changed(FlatpakInstallation* /*inst*/, gpointer user_data) {
     auto* h = static_cast<MonitorHandle*>(user_data);
     post_update_event(h->port);
     return G_SOURCE_CONTINUE;
@@ -78,19 +80,20 @@ void flatpak_bridge_init(void* dart_api_dl_data) {
 
 void* flatpak_monitor_create(Dart_Port event_port, const char* installation) {
     auto* inst = open_installation_for_monitor(installation);
-    if (!inst) { return nullptr; }
+    if (!inst) {
+        return nullptr;
+    }
 
     auto* h = new MonitorHandle{};
-    h->port         = event_port;
+    h->port = event_port;
     h->installation = inst;
-    h->context      = g_main_context_new();
-    h->loop         = g_main_loop_new(h->context, FALSE);
+    h->context = g_main_context_new();
+    h->loop = g_main_loop_new(h->context, FALSE);
 
     // FlatpakInstallation emits "changed" when refs change on disk.
     // We connect in the monitor's dedicated GMainContext.
     g_main_context_push_thread_default(h->context);
-    h->signal_id = g_signal_connect(inst, "changed",
-        G_CALLBACK(on_monitor_changed), h);
+    h->signal_id = g_signal_connect(inst, "changed", G_CALLBACK(on_monitor_changed), h);
     g_main_context_pop_thread_default(h->context);
 
     // Start the GMainLoop on a dedicated thread
@@ -101,7 +104,9 @@ void* flatpak_monitor_create(Dart_Port event_port, const char* installation) {
 
 void flatpak_monitor_close(void* handle) {
     auto* h = static_cast<MonitorHandle*>(handle);
-    if (!h) { return; }
+    if (!h) {
+        return;
+    }
 
     // Stop the main loop — this causes monitor_thread_func to return
     if (h->loop) {
@@ -123,7 +128,9 @@ void flatpak_monitor_close(void* handle) {
 
 void flatpak_monitor_destroy(void* handle) {
     auto* h = static_cast<MonitorHandle*>(handle);
-    if (!h) { return; }
+    if (!h) {
+        return;
+    }
 
     // Ensure closed first
     flatpak_monitor_close(handle);

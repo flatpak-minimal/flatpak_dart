@@ -3,11 +3,13 @@
 // directly — no D-Bus required for user installations.
 // System installations route through libflatpak which escalates via polkit.
 
-#include "flatpak_bridge.h"
-#include "flatpak_types.h"
 #include <flatpak/flatpak.h>
+
 #include <cstring>
 #include <vector>
+
+#include "flatpak_bridge.h"
+#include "flatpak_types.h"
 
 // ── Helpers (shared with installation_reader.cpp) ───────────────────────────
 
@@ -45,8 +47,9 @@ void post_error(Dart_Port port, const char* msg) {
     obj.value.as_external_typed_data.length = static_cast<intptr_t>(total);
     obj.value.as_external_typed_data.data = buf;
     obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback =
-        [](void*, void* peer) { delete[] static_cast<uint8_t*>(peer); };
+    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
+        delete[] static_cast<uint8_t*>(peer);
+    };
 
     Dart_PostCObject_DL(port, &obj);
 }
@@ -79,8 +82,7 @@ void apply_config(FlatpakRemote* remote, const RemoteConfig& cfg) {
         flatpak_remote_set_filter(remote, cfg.filter.c_str());
     }
     if (!cfg.gpgKeyData.empty()) {
-        g_autoptr(GBytes) key = g_bytes_new(cfg.gpgKeyData.data(),
-                                             cfg.gpgKeyData.size());
+        g_autoptr(GBytes) key = g_bytes_new(cfg.gpgKeyData.data(), cfg.gpgKeyData.size());
         flatpak_remote_set_gpg_key(remote, key);
     }
     if (cfg.gpgVerify >= 0) {
@@ -110,7 +112,7 @@ RemoteConfig decode_config(const uint8_t* buf, int64_t len) {
 // ── Remote bridge handle ────────────────────────────────────────────────────
 
 struct RemoteBridge {
-    Dart_Port            port;
+    Dart_Port port;
     FlatpakInstallation* installation;
 };
 
@@ -130,7 +132,9 @@ extern "C" {
 
 void* flatpak_user_remote_create(Dart_Port result_port) {
     auto* inst = open_user_installation();
-    if (!inst) { return nullptr; }
+    if (!inst) {
+        return nullptr;
+    }
     auto* b = new RemoteBridge{result_port, inst};
     return b;
 }
@@ -141,9 +145,8 @@ void flatpak_user_remote_destroy(void* handle) {
     delete b;
 }
 
-void flatpak_user_remote_add(void* handle, const char* name,
-                              const uint8_t* config_buf, int64_t config_len,
-                              bool if_not_exists) {
+void flatpak_user_remote_add(void* handle, const char* name, const uint8_t* config_buf,
+                             int64_t config_len, bool if_not_exists) {
     auto* b = static_cast<RemoteBridge*>(handle);
     auto cfg = decode_config(config_buf, config_len);
 
@@ -151,14 +154,13 @@ void flatpak_user_remote_add(void* handle, const char* name,
     apply_config(remote, cfg);
 
     g_autoptr(GError) err = nullptr;
-    bool ok = flatpak_installation_add_remote(
-        b->installation, remote, if_not_exists, nullptr, &err);
+    bool ok =
+        flatpak_installation_add_remote(b->installation, remote, if_not_exists, nullptr, &err);
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
 
-void flatpak_user_remote_add_from_file(void* handle, const char* name,
-                                        const char* flatpakrepo_path,
-                                        bool if_not_exists) {
+void flatpak_user_remote_add_from_file(void* handle, const char* name, const char* flatpakrepo_path,
+                                       bool if_not_exists) {
     auto* b = static_cast<RemoteBridge*>(handle);
 
     // Read the .flatpakrepo keyfile
@@ -186,22 +188,36 @@ void flatpak_user_remote_add_from_file(void* handle, const char* name,
     }
 
     g_autofree char* url = g_key_file_get_string(kf, "Flatpak Repo", "Url", nullptr);
-    if (url) { flatpak_remote_set_url(remote, url); }
+    if (url) {
+        flatpak_remote_set_url(remote, url);
+    }
 
     g_autofree char* title = g_key_file_get_string(kf, "Flatpak Repo", "Title", nullptr);
-    if (title) { flatpak_remote_set_title(remote, title); }
+    if (title) {
+        flatpak_remote_set_title(remote, title);
+    }
 
     g_autofree char* comment = g_key_file_get_string(kf, "Flatpak Repo", "Comment", nullptr);
-    if (comment) { flatpak_remote_set_comment(remote, comment); }
+    if (comment) {
+        flatpak_remote_set_comment(remote, comment);
+    }
 
-    g_autofree char* description = g_key_file_get_string(kf, "Flatpak Repo", "Description", nullptr);
-    if (description) { flatpak_remote_set_description(remote, description); }
+    g_autofree char* description =
+        g_key_file_get_string(kf, "Flatpak Repo", "Description", nullptr);
+    if (description) {
+        flatpak_remote_set_description(remote, description);
+    }
 
     g_autofree char* homepage = g_key_file_get_string(kf, "Flatpak Repo", "Homepage", nullptr);
-    if (homepage) { flatpak_remote_set_homepage(remote, homepage); }
+    if (homepage) {
+        flatpak_remote_set_homepage(remote, homepage);
+    }
 
-    g_autofree char* default_branch = g_key_file_get_string(kf, "Flatpak Repo", "DefaultBranch", nullptr);
-    if (default_branch) { flatpak_remote_set_default_branch(remote, default_branch); }
+    g_autofree char* default_branch =
+        g_key_file_get_string(kf, "Flatpak Repo", "DefaultBranch", nullptr);
+    if (default_branch) {
+        flatpak_remote_set_default_branch(remote, default_branch);
+    }
 
     // GPG key is base64-encoded in the keyfile
     g_autofree char* gpg_key_b64 = g_key_file_get_string(kf, "Flatpak Repo", "GPGKey", nullptr);
@@ -216,21 +232,19 @@ void flatpak_user_remote_add_from_file(void* handle, const char* name,
     }
 
     err = nullptr;
-    bool ok = flatpak_installation_add_remote(
-        b->installation, remote, if_not_exists, nullptr, &err);
+    bool ok =
+        flatpak_installation_add_remote(b->installation, remote, if_not_exists, nullptr, &err);
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
 
-void flatpak_user_remote_modify(void* handle, const char* name,
-                                 const uint8_t* changes_buf,
-                                 int64_t changes_len) {
+void flatpak_user_remote_modify(void* handle, const char* name, const uint8_t* changes_buf,
+                                int64_t changes_len) {
     auto* b = static_cast<RemoteBridge*>(handle);
     auto cfg = decode_config(changes_buf, changes_len);
 
     g_autoptr(GError) err = nullptr;
     g_autoptr(FlatpakRemote) remote =
-        flatpak_installation_get_remote_by_name(b->installation, name,
-                                                 nullptr, &err);
+        flatpak_installation_get_remote_by_name(b->installation, name, nullptr, &err);
     if (!remote) {
         post_error(b->port, err->message);
         return;
@@ -239,21 +253,18 @@ void flatpak_user_remote_modify(void* handle, const char* name,
     apply_config(remote, cfg);
 
     err = nullptr;
-    bool ok = flatpak_installation_modify_remote(
-        b->installation, remote, nullptr, &err);
+    bool ok = flatpak_installation_modify_remote(b->installation, remote, nullptr, &err);
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
 
 void flatpak_user_remote_remove(void* handle, const char* name, bool force) {
     auto* b = static_cast<RemoteBridge*>(handle);
     g_autoptr(GError) err = nullptr;
-    bool ok = flatpak_installation_remove_remote(
-        b->installation, name, nullptr, &err);
+    bool ok = flatpak_installation_remove_remote(b->installation, name, nullptr, &err);
     if (!ok && force) {
         // Force removal: try again ignoring errors about installed refs
         err = nullptr;
-        ok = flatpak_installation_remove_remote(
-            b->installation, name, nullptr, &err);
+        ok = flatpak_installation_remove_remote(b->installation, name, nullptr, &err);
     }
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
@@ -261,8 +272,7 @@ void flatpak_user_remote_remove(void* handle, const char* name, bool force) {
 void flatpak_user_remote_update(void* handle, const char* name) {
     auto* b = static_cast<RemoteBridge*>(handle);
     g_autoptr(GError) err = nullptr;
-    bool ok = flatpak_installation_update_remote_sync(
-        b->installation, name, nullptr, &err);
+    bool ok = flatpak_installation_update_remote_sync(b->installation, name, nullptr, &err);
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
 
@@ -270,7 +280,9 @@ void flatpak_user_remote_update(void* handle, const char* name) {
 
 void* flatpak_system_remote_create(Dart_Port result_port) {
     auto* inst = open_system_installation();
-    if (!inst) { return nullptr; }
+    if (!inst) {
+        return nullptr;
+    }
     auto* b = new RemoteBridge{result_port, inst};
     return b;
 }
@@ -281,22 +293,19 @@ void flatpak_system_remote_destroy(void* handle) {
     delete b;
 }
 
-void flatpak_system_remote_add(void* handle, const char* name,
-                                const uint8_t* config_buf, int64_t config_len,
-                                bool if_not_exists) {
+void flatpak_system_remote_add(void* handle, const char* name, const uint8_t* config_buf,
+                               int64_t config_len, bool if_not_exists) {
     // Same as user — libflatpak handles polkit escalation internally
     flatpak_user_remote_add(handle, name, config_buf, config_len, if_not_exists);
 }
 
 void flatpak_system_remote_add_from_file(void* handle, const char* name,
-                                          const char* flatpakrepo_path,
-                                          bool if_not_exists) {
+                                         const char* flatpakrepo_path, bool if_not_exists) {
     flatpak_user_remote_add_from_file(handle, name, flatpakrepo_path, if_not_exists);
 }
 
-void flatpak_system_remote_modify(void* handle, const char* name,
-                                   const uint8_t* changes_buf,
-                                   int64_t changes_len) {
+void flatpak_system_remote_modify(void* handle, const char* name, const uint8_t* changes_buf,
+                                  int64_t changes_len) {
     flatpak_user_remote_modify(handle, name, changes_buf, changes_len);
 }
 

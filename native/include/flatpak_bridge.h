@@ -11,9 +11,10 @@
 // System-install writes trigger polkit inside libflatpak automatically.
 
 #pragma once
-#include "dart_api_dl.h"
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "dart_api_dl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,41 +24,33 @@ void flatpak_bridge_init(void* dart_api_dl_data);
 
 // ── Installation reader (libflatpak — read-only) ──────────────────────────
 void* flatpak_reader_create(Dart_Port port, const char* installation);
-void  flatpak_reader_destroy(void* handle);
-void  flatpak_reader_list_apps(void* handle, bool include_runtimes);
-void  flatpak_reader_list_remotes(void* handle);
-void  flatpak_reader_get_remote_info(void* handle, const char* name);
+void flatpak_reader_destroy(void* handle);
+void flatpak_reader_list_apps(void* handle, bool include_runtimes);
+void flatpak_reader_list_remotes(void* handle);
+void flatpak_reader_get_remote_info(void* handle, const char* name);
 // flatpak remote-ls equivalent: posts FlatpakRef records, then 0xFF sentinel
-void  flatpak_reader_list_remote_apps(void* handle, const char* name,
-                                       const char* arch,
-                                       bool include_runtimes);
-void  flatpak_reader_get_app_info(void* handle, const char* app_id,
-                                   const char* arch, const char* branch);
-void  flatpak_reader_get_permissions(void* handle, const char* app_id);
-void  flatpak_reader_check_updates(void* handle);
+void flatpak_reader_list_remote_apps(void* handle, const char* name, const char* arch,
+                                     bool include_runtimes);
+void flatpak_reader_get_app_info(void* handle, const char* app_id, const char* arch,
+                                 const char* branch);
+void flatpak_reader_get_permissions(void* handle, const char* app_id);
+void flatpak_reader_check_updates(void* handle);
 
 // ── User-installation remote management (no polkit required) ─────────────
 void* flatpak_user_remote_create(Dart_Port result_port);
-void  flatpak_user_remote_destroy(void* handle);
-void  flatpak_user_remote_add(void* handle,
-                               const char* name,
-                               const uint8_t* config_buf, int64_t config_len,
-                               bool if_not_exists);
+void flatpak_user_remote_destroy(void* handle);
+void flatpak_user_remote_add(void* handle, const char* name, const uint8_t* config_buf,
+                             int64_t config_len, bool if_not_exists);
 // Parses the .flatpakrepo keyfile; extracts URL, GPG key, title automatically.
-void  flatpak_user_remote_add_from_file(void* handle,
-                                         const char* name,
-                                         const char* flatpakrepo_path,
-                                         bool if_not_exists);
-void  flatpak_user_remote_modify(void* handle,
-                                  const char* name,
-                                  const uint8_t* changes_buf, int64_t changes_len);
-void  flatpak_user_remote_remove(void* handle,
-                                  const char* name,
-                                  bool force);
+void flatpak_user_remote_add_from_file(void* handle, const char* name, const char* flatpakrepo_path,
+                                       bool if_not_exists);
+void flatpak_user_remote_modify(void* handle, const char* name, const uint8_t* changes_buf,
+                                int64_t changes_len);
+void flatpak_user_remote_remove(void* handle, const char* name, bool force);
 // flatpak update --appstream --remote=<name> [--user]
 // Calls flatpak_installation_update_remote_sync() for both.
 // libflatpak escalates privilege for system installations automatically.
-void  flatpak_user_remote_update(void* handle, const char* name);
+void flatpak_user_remote_update(void* handle, const char* name);
 
 // ── Transaction worker (persistent, one per FlatpakInstallation) ──────────
 // Owns a serial queue and a single dedicated thread. All FlatpakTransaction
@@ -66,8 +59,8 @@ void  flatpak_user_remote_update(void* handle, const char* name);
 // different installations (user vs system) run in parallel because they have
 // separate repo paths and therefore separate workers.
 void* flatpak_worker_create(const char* installation);
-void  flatpak_worker_destroy(void* handle);
-void  flatpak_worker_cancel_current(void* handle);  // signals GCancellable
+void flatpak_worker_destroy(void* handle);
+void flatpak_worker_cancel_current(void* handle);  // signals GCancellable
 
 // ── Transaction handle (one per batch of operations) ─────────────────────
 // Built up by calling flatpak_tx_add_* then submitted with flatpak_tx_submit.
@@ -79,36 +72,34 @@ void  flatpak_worker_cancel_current(void* handle);  // signals GCancellable
 //   0x01 = success sentinel (transaction complete)
 //   0x02 = error (UTF-8 string, uint32_t length-prefix)
 void* flatpak_tx_create(void* worker_handle, Dart_Port port);
-void  flatpak_tx_destroy(void* handle);  // only safe before submit
-void  flatpak_tx_add_install(void* handle, const char* remote, const char* ref);
-void  flatpak_tx_add_update(void* handle, const char* ref);   // "" = update all
-void  flatpak_tx_add_uninstall(void* handle, const char* ref);
-void  flatpak_tx_add_install_bundle(void* handle, const char* bundle_path);
-void  flatpak_tx_submit(void* handle);   // enqueues on worker; non-blocking
+void flatpak_tx_destroy(void* handle);  // only safe before submit
+void flatpak_tx_add_install(void* handle, const char* remote, const char* ref);
+void flatpak_tx_add_update(void* handle, const char* ref);  // "" = update all
+void flatpak_tx_add_uninstall(void* handle, const char* ref);
+void flatpak_tx_add_install_bundle(void* handle, const char* bundle_path);
+void flatpak_tx_submit(void* handle);  // enqueues on worker; non-blocking
 
 // ── System-installation remote management (polkit via libflatpak) ─────────
 // Routes through flatpak_installation_{add,modify,remove}_remote().
 // libflatpak escalates to polkit for system installs automatically.
 void* flatpak_system_remote_create(Dart_Port result_port);
-void  flatpak_system_remote_destroy(void* handle);
-void  flatpak_system_remote_add(void* handle, const char* name,
-                                  const uint8_t* config_buf, int64_t config_len,
-                                  bool if_not_exists);
-void  flatpak_system_remote_add_from_file(void* handle, const char* name,
-                                            const char* flatpakrepo_path,
-                                            bool if_not_exists);
-void  flatpak_system_remote_modify(void* handle, const char* name,
-                                    const uint8_t* changes_buf, int64_t changes_len);
-void  flatpak_system_remote_remove(void* handle, const char* name, bool force);
-void  flatpak_system_remote_update(void* handle, const char* name);
+void flatpak_system_remote_destroy(void* handle);
+void flatpak_system_remote_add(void* handle, const char* name, const uint8_t* config_buf,
+                               int64_t config_len, bool if_not_exists);
+void flatpak_system_remote_add_from_file(void* handle, const char* name,
+                                         const char* flatpakrepo_path, bool if_not_exists);
+void flatpak_system_remote_modify(void* handle, const char* name, const uint8_t* changes_buf,
+                                  int64_t changes_len);
+void flatpak_system_remote_remove(void* handle, const char* name, bool force);
+void flatpak_system_remote_update(void* handle, const char* name);
 
 // ── Update monitor (FlatpakMonitor GObject — libflatpak >= 1.5.3) ─────────
 // Wraps flatpak_monitor_new(). Uses inotify on the installation directory.
 // Posts 0x11 when "changed" fires and flatpak_monitor_update_is_due() == TRUE.
 // Works from any host process; no D-Bus portal, no sandbox required.
 void* flatpak_monitor_create(Dart_Port event_port, const char* installation);
-void  flatpak_monitor_close(void* handle);
-void  flatpak_monitor_destroy(void* handle);
+void flatpak_monitor_close(void* handle);
+void flatpak_monitor_destroy(void* handle);
 
 #ifdef __cplusplus
 }

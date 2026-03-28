@@ -3,6 +3,7 @@
 // For CI, we test with the user installation (which may be empty).
 
 #include <gtest/gtest.h>
+
 #include "installation_reader.h"
 
 // Note: Full integration tests require a running Flatpak installation.

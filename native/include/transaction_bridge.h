@@ -8,21 +8,23 @@
 //   0x01 = success sentinel
 //   0x02 = error (glaze-encoded string)
 #pragma once
-#include "dart_api_dl.h"
-#include "flatpak_types.h"
 #include <flatpak/flatpak.h>
+
 #include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
 
+#include "dart_api_dl.h"
+#include "flatpak_types.h"
+
 // ── PendingTx — one per batch of operations ──────────────────────────────
 
 struct PendingTx {
-    FlatpakTransaction* tx;       // transfer-full
-    GCancellable*       cancel;
-    Dart_Port           port;     // single port: 0x10=progress, 0x01=done, 0x02=err
+    FlatpakTransaction* tx;  // transfer-full
+    GCancellable* cancel;
+    Dart_Port port;  // single port: 0x10=progress, 0x01=done, 0x02=err
 };
 
 // ── ProgressCtx — per-operation context for the progress signal ──────────
@@ -32,9 +34,9 @@ struct PendingTx {
 // GClosureNotify when the signal disconnects.
 
 struct ProgressCtx {
-    Dart_Port   port;
-    std::string ref;        // captured from FlatpakTransactionOperation
-    std::string op_kind;    // "install" | "update" | "uninstall"
+    Dart_Port port;
+    std::string ref;      // captured from FlatpakTransactionOperation
+    std::string op_kind;  // "install" | "update" | "uninstall"
 };
 
 // ── TransactionWorker — serial queue, one per FlatpakInstallation ────────
@@ -49,7 +51,7 @@ struct ProgressCtx {
 // separate OSTree repos and separate TransactionWorkers.
 
 class TransactionWorker {
-public:
+   public:
     explicit TransactionWorker(FlatpakInstallation* inst);
     ~TransactionWorker();
 
@@ -60,24 +62,24 @@ public:
     // Signal the currently-executing transaction to cancel.
     void cancel_current();
 
-private:
+   private:
     void loop();
     void execute(const PendingTx& item);
 
-    FlatpakInstallation*    inst_;
-    std::thread             thread_;
-    std::mutex              mu_;
+    FlatpakInstallation* inst_;
+    std::thread thread_;
+    std::mutex mu_;
     std::condition_variable cv_;
-    std::queue<PendingTx>   queue_;
-    GCancellable*           current_cancel_{nullptr};
-    bool                    stop_{false};
+    std::queue<PendingTx> queue_;
+    GCancellable* current_cancel_{nullptr};
+    bool stop_{false};
 };
 
 // ── TxHandle — accumulates operations before submit ──────────────────────
 
 struct TxHandle {
-    TransactionWorker*  worker;
+    TransactionWorker* worker;
     FlatpakTransaction* tx;
-    GCancellable*       cancel;
-    Dart_Port           port;
+    GCancellable* cancel;
+    Dart_Port port;
 };

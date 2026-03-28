@@ -3,10 +3,12 @@
 // requires a running Flatpak installation.
 
 #include <gtest/gtest.h>
+
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
+
 #include "transaction_bridge.h"
 
 using namespace std::chrono_literals;
@@ -57,8 +59,8 @@ TEST(PendingTx, CanBeDefaultConstructed) {
 
 TEST(ProgressCtx, CapturesRefAndOpKind) {
     ProgressCtx ctx{
-        .port    = 42,
-        .ref     = "app/org.gnome.Calculator/x86_64/stable",
+        .port = 42,
+        .ref = "app/org.gnome.Calculator/x86_64/stable",
         .op_kind = "install",
     };
     EXPECT_EQ(ctx.port, 42);
@@ -68,8 +70,8 @@ TEST(ProgressCtx, CapturesRefAndOpKind) {
 
 TEST(ProgressCtx, EmptyRefIsValid) {
     ProgressCtx ctx{
-        .port    = 0,
-        .ref     = "",
+        .port = 0,
+        .ref = "",
         .op_kind = "update",
     };
     EXPECT_TRUE(ctx.ref.empty());
@@ -81,9 +83,9 @@ TEST(ProgressCtx, EmptyRefIsValid) {
 TEST(TxHandle, CanBeConstructedWithNulls) {
     TxHandle h{
         .worker = nullptr,
-        .tx     = nullptr,
+        .tx = nullptr,
         .cancel = nullptr,
-        .port   = 0,
+        .port = 0,
     };
     EXPECT_EQ(h.worker, nullptr);
     EXPECT_EQ(h.tx, nullptr);
@@ -93,12 +95,12 @@ TEST(TxHandle, CanBeConstructedWithNulls) {
 
 TEST(TransactionProgress, GlazeRoundtrip) {
     TransactionProgress orig;
-    orig.op               = "install";
-    orig.ref              = "app/org.gnome.Calculator/x86_64/stable";
-    orig.progress         = 75;
+    orig.op = "install";
+    orig.ref = "app/org.gnome.Calculator/x86_64/stable";
+    orig.progress = 75;
     orig.bytesTransferred = 50 * 1024 * 1024;
-    orig.bytesTotal       = 71 * 1024 * 1024;
-    orig.status           = "Downloading";
+    orig.bytesTotal = 71 * 1024 * 1024;
+    orig.status = "Downloading";
 
     std::vector<uint8_t> buf;
     glz::write_binary(orig, buf);
@@ -115,12 +117,12 @@ TEST(TransactionProgress, GlazeRoundtrip) {
 
 TEST(TransactionProgress, ZeroBytesTotalPhase) {
     TransactionProgress p;
-    p.op               = "install";
-    p.ref              = "app/org.gnome.Calculator/x86_64/stable";
-    p.progress         = 0;
+    p.op = "install";
+    p.ref = "app/org.gnome.Calculator/x86_64/stable";
+    p.progress = 0;
     p.bytesTransferred = 10 * 1024 * 1024;
-    p.bytesTotal       = 0;
-    p.status           = "Downloading";
+    p.bytesTotal = 0;
+    p.status = "Downloading";
 
     std::vector<uint8_t> buf;
     glz::write_binary(p, buf);

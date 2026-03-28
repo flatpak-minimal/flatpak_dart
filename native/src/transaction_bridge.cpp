@@ -4,15 +4,16 @@
 // thread and a serial queue of pending transactions.
 
 #include "transaction_bridge.h"
-#include "flatpak_bridge.h"
+
 #include <cstring>
+
+#include "flatpak_bridge.h"
 
 // ── Post helpers ────────────────────────────────────────────────────────────
 
 namespace {
 
-void post_glaze_bytes(Dart_Port port, uint8_t discriminator,
-                      const uint8_t* data, size_t len) {
+void post_glaze_bytes(Dart_Port port, uint8_t discriminator, const uint8_t* data, size_t len) {
     auto* buf = new uint8_t[1 + len];
     buf[0] = discriminator;
     if (len > 0) {
@@ -25,8 +26,9 @@ void post_glaze_bytes(Dart_Port port, uint8_t discriminator,
     obj.value.as_external_typed_data.length = static_cast<intptr_t>(1 + len);
     obj.value.as_external_typed_data.data = buf;
     obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback =
-        [](void*, void* peer) { delete[] static_cast<uint8_t*>(peer); };
+    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
+        delete[] static_cast<uint8_t*>(peer);
+    };
 
     Dart_PostCObject_DL(port, &obj);
 }
@@ -64,75 +66,70 @@ void post_error(Dart_Port port, const char* msg) {
     obj.value.as_external_typed_data.length = static_cast<intptr_t>(total);
     obj.value.as_external_typed_data.data = buf;
     obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback =
-        [](void*, void* peer) { delete[] static_cast<uint8_t*>(peer); };
+    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
+        delete[] static_cast<uint8_t*>(peer);
+    };
 
     Dart_PostCObject_DL(port, &obj);
 }
 
 const char* op_kind_str(FlatpakTransactionOperationType type) {
     switch (type) {
-        case FLATPAK_TRANSACTION_OPERATION_INSTALL:        return "install";
-        case FLATPAK_TRANSACTION_OPERATION_UPDATE:         return "update";
-        case FLATPAK_TRANSACTION_OPERATION_INSTALL_BUNDLE: return "install";
-        case FLATPAK_TRANSACTION_OPERATION_UNINSTALL:      return "uninstall";
-        default:                                           return "unknown";
+        case FLATPAK_TRANSACTION_OPERATION_INSTALL:
+            return "install";
+        case FLATPAK_TRANSACTION_OPERATION_UPDATE:
+            return "update";
+        case FLATPAK_TRANSACTION_OPERATION_INSTALL_BUNDLE:
+            return "install";
+        case FLATPAK_TRANSACTION_OPERATION_UNINSTALL:
+            return "uninstall";
+        default:
+            return "unknown";
     }
 }
 
-const char* safe_str(const char* s) { return s ? s : ""; }
+const char* safe_str(const char* s) {
+    return s ? s : "";
+}
 
 }  // anonymous namespace
 
 // ── GObject signal handlers ─────────────────────────────────────────────────
 
-static void on_new_operation(FlatpakTransaction*,
-                             FlatpakTransactionOperation* op,
-                             FlatpakTransactionProgress*  prog,
-                             gpointer                     port_ptr) {
+static void on_new_operation(FlatpakTransaction*, FlatpakTransactionOperation* op,
+                             FlatpakTransactionProgress* prog, gpointer port_ptr) {
     auto* ctx = new ProgressCtx{
-        .port     = *static_cast<Dart_Port*>(port_ptr),
-        .ref      = safe_str(flatpak_transaction_operation_get_ref(op)),
-        .op_kind  = op_kind_str(
-            flatpak_transaction_operation_get_operation_type(op)),
+        .port = *static_cast<Dart_Port*>(port_ptr),
+        .ref = safe_str(flatpak_transaction_operation_get_ref(op)),
+        .op_kind = op_kind_str(flatpak_transaction_operation_get_operation_type(op)),
     };
     // g_signal_connect_data with notify frees ctx when the signal disconnects.
     g_signal_connect_data(
-        prog, "changed",
-        G_CALLBACK(+[](FlatpakTransactionProgress* prog,
-                       gpointer ctx_ptr) {
+        prog, "changed", G_CALLBACK(+[](FlatpakTransactionProgress* prog, gpointer ctx_ptr) {
             auto* ctx = static_cast<ProgressCtx*>(ctx_ptr);
 
             TransactionProgress p;
-            p.op               = ctx->op_kind;
-            p.ref              = ctx->ref;
-            p.progress         = flatpak_transaction_progress_get_progress(prog);
+            p.op = ctx->op_kind;
+            p.ref = ctx->ref;
+            p.progress = flatpak_transaction_progress_get_progress(prog);
             p.bytesTransferred = flatpak_transaction_progress_get_bytes_transferred(prog);
-            p.bytesTotal       = 0;  // bytesTotal not available on all libflatpak versions
-            p.status           = safe_str(
-                flatpak_transaction_progress_get_status(prog));
+            p.bytesTotal = 0;  // bytesTotal not available on all libflatpak versions
+            p.status = safe_str(flatpak_transaction_progress_get_status(prog));
 
             post_glaze(ctx->port, 0x10, p);
         }),
-        ctx,
-        [](gpointer data, GClosure*) {
-            delete static_cast<ProgressCtx*>(data);
-        },
+        ctx, [](gpointer data, GClosure*) { delete static_cast<ProgressCtx*>(data); },
         G_CONNECT_DEFAULT);
 }
 
-static void on_operation_done(FlatpakTransaction*,
-                              FlatpakTransactionOperation*,
-                              const char*, FlatpakTransactionResult,
-                              gpointer) {
+static void on_operation_done(FlatpakTransaction*, FlatpakTransactionOperation*, const char*,
+                              FlatpakTransactionResult, gpointer) {
     // Individual op done — progress stream stays open until the whole
     // transaction finishes. No action needed here.
 }
 
-static gboolean on_choose_remote_for_ref(FlatpakTransaction*,
-                                         const char* /*for_ref*/,
-                                         const char* /*runtime_ref*/,
-                                         const char* const* remotes,
+static gboolean on_choose_remote_for_ref(FlatpakTransaction*, const char* /*for_ref*/,
+                                         const char* /*runtime_ref*/, const char* const* remotes,
                                          gpointer /*self*/) {
     // Auto-select the first available remote for runtime dependencies.
     return 0;  // index 0
@@ -176,7 +173,9 @@ void TransactionWorker::loop() {
         {
             std::unique_lock lk(mu_);
             cv_.wait(lk, [&] { return stop_ || !queue_.empty(); });
-            if (stop_) { return; }
+            if (stop_) {
+                return;
+            }
             item = std::move(queue_.front());
             queue_.pop();
             current_cancel_ = item.cancel;
@@ -192,13 +191,11 @@ void TransactionWorker::loop() {
 }
 
 void TransactionWorker::execute(const PendingTx& item) {
-    g_signal_connect(item.tx, "new-operation",
-        G_CALLBACK(on_new_operation),
-        const_cast<Dart_Port*>(&item.port));
-    g_signal_connect(item.tx, "operation-done",
-        G_CALLBACK(on_operation_done), nullptr);
-    g_signal_connect(item.tx, "choose-remote-for-ref",
-        G_CALLBACK(on_choose_remote_for_ref), nullptr);
+    g_signal_connect(item.tx, "new-operation", G_CALLBACK(on_new_operation),
+                     const_cast<Dart_Port*>(&item.port));
+    g_signal_connect(item.tx, "operation-done", G_CALLBACK(on_operation_done), nullptr);
+    g_signal_connect(item.tx, "choose-remote-for-ref", G_CALLBACK(on_choose_remote_for_ref),
+                     nullptr);
 
     g_autoptr(GError) err = nullptr;
     const bool ok = flatpak_transaction_run(item.tx, item.cancel, &err);
@@ -224,7 +221,9 @@ extern "C" {
 
 void* flatpak_worker_create(const char* installation) {
     auto* inst = open_installation(installation);
-    if (!inst) { return nullptr; }
+    if (!inst) {
+        return nullptr;
+    }
     auto* w = new TransactionWorker(inst);
     g_object_unref(inst);
     return w;
@@ -248,22 +247,25 @@ void* flatpak_tx_create(void* worker_handle, Dart_Port port) {
     // This is a simplified implementation.
     auto* h = new TxHandle{
         .worker = worker,
-        .tx     = nullptr,  // set lazily when ops are added
+        .tx = nullptr,  // set lazily when ops are added
         .cancel = g_cancellable_new(),
-        .port   = port,
+        .port = port,
     };
     return h;
 }
 
 void flatpak_tx_destroy(void* handle) {
     auto* h = static_cast<TxHandle*>(handle);
-    if (h->tx) { g_object_unref(h->tx); }
-    if (h->cancel) { g_object_unref(h->cancel); }
+    if (h->tx) {
+        g_object_unref(h->tx);
+    }
+    if (h->cancel) {
+        g_object_unref(h->cancel);
+    }
     delete h;
 }
 
-void flatpak_tx_add_install(void* handle, const char* remote,
-                             const char* ref) {
+void flatpak_tx_add_install(void* handle, const char* remote, const char* ref) {
     auto* h = static_cast<TxHandle*>(handle);
     if (h->tx) {
         g_autoptr(GError) err = nullptr;
@@ -304,11 +306,11 @@ void flatpak_tx_submit(void* handle) {
     }
     // Transfer ownership to the worker
     PendingTx ptx{
-        .tx     = h->tx,
+        .tx = h->tx,
         .cancel = h->cancel,
-        .port   = h->port,
+        .port = h->port,
     };
-    h->tx     = nullptr;  // worker owns it now
+    h->tx = nullptr;  // worker owns it now
     h->cancel = nullptr;
     h->worker->enqueue(ptx);
 }
