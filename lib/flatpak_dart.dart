@@ -4,4 +4,12 @@
 /// No D-Bus client library required.
 library flatpak_dart;
 
-// Public API — populated in PRs 3–6.
+export 'src/application.dart';
+export 'src/exceptions.dart';
+export 'src/flatpak_client.dart';
+export 'src/known_remotes.dart';
+export 'src/permissions.dart';
+export 'src/remote.dart';
+export 'src/remote_manager.dart';
+export 'src/transaction.dart' hide TransactionBridge, VoidCallback;
+export 'src/update_monitor.dart';
