@@ -1,0 +1,29 @@
+name: Coverage (scheduled)
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  full-coverage:
+    name: Weekly full coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc g++ \
+            libflatpak-dev libglib2.0-dev \
+            libgtest-dev lcov
+      - uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
+      - run: dart pub global activate coverage && dart pub get
+      - run: ./scripts/coverage.sh build-cov
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: build-cov/coverage_html
+          destination_dir: coverage
+          commit_message: "Update coverage report"

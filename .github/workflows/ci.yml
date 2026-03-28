@@ -1,0 +1,197 @@
+name: CI
+
+on:
+  push:    { branches: [main, develop] }
+  pull_request: { branches: [main] }
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Format check ──────────────────────────────────────────────────────
+  format:
+    name: Format check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y clang-format-19
+      - run: ./scripts/clang_format.sh check
+      - uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
+      - run: dart format --set-exit-if-changed lib/ test/
+
+  # ── Ubuntu x86_64 ────────────────────────────────────────────────────
+  build-ubuntu-x64:
+    name: Ubuntu 24.04 / x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build \
+            clang-19 clang-tidy-19 clang-format-19 \
+            libflatpak-dev libglib2.0-dev \
+            libgtest-dev lcov
+      - uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
+      - run: dart pub get
+      - name: Build (Release)
+        run: |
+          cmake -B build native/ -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DBUILD_TESTING=ON
+          cmake --build build --parallel
+      - name: C++ tests
+        run: ctest --test-dir build/test --output-on-failure -j4
+      - name: Dart tests
+        env:
+          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
+        run: dart test --reporter=expanded
+      - name: clang-tidy-19
+        run: ./scripts/clang_tidy.sh build
+
+  # ── Ubuntu arm64 ─────────────────────────────────────────────────────
+  build-ubuntu-arm64:
+    name: Ubuntu 24.04 / arm64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang-19 \
+            libflatpak-dev libglib2.0-dev libgtest-dev
+      - uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
+      - run: dart pub get
+      - name: Build + test
+        run: |
+          cmake -B build native/ -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-19 \
+            -DBUILD_TESTING=ON
+          cmake --build build --parallel
+          ctest --test-dir build/test --output-on-failure -j4
+      - name: Dart tests
+        env:
+          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
+        run: dart test
+
+  # ── Fedora 41 x86_64 (container) ─────────────────────────────────────
+  build-fedora-x64:
+    name: Fedora 41 / x86_64
+    runs-on: ubuntu-24.04
+    container:
+      image: fedora:41
+    steps:
+      - name: Install deps
+        run: |
+          dnf install -y \
+            git cmake ninja-build \
+            clang clang-tools-extra \
+            flatpak-devel glib2-devel \
+            gtest-devel lcov unzip curl
+      - uses: actions/checkout@v4
+      - name: Install Dart SDK
+        run: |
+          curl -fsSL \
+            "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip" \
+            -o dart-sdk.zip
+          unzip -q dart-sdk.zip
+          echo "$PWD/dart-sdk/bin" >> "$GITHUB_PATH"
+      - run: dart pub get
+      - name: Build + test
+        run: |
+          cmake -B build native/ -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON
+          cmake --build build --parallel
+          ctest --test-dir build/test --output-on-failure -j4
+      - name: Dart tests
+        env:
+          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
+        run: dart test
+
+  # ── Fedora 41 arm64 (container on arm runner) ─────────────────────────
+  build-fedora-arm64:
+    name: Fedora 41 / arm64
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: fedora:41
+    steps:
+      - name: Install deps
+        run: |
+          dnf install -y \
+            git cmake ninja-build \
+            clang clang-tools-extra \
+            flatpak-devel glib2-devel \
+            gtest-devel unzip curl
+      - uses: actions/checkout@v4
+      - name: Install Dart SDK (arm64)
+        run: |
+          curl -fsSL \
+            "https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-arm64-release.zip" \
+            -o dart-sdk.zip
+          unzip -q dart-sdk.zip
+          echo "$PWD/dart-sdk/bin" >> "$GITHUB_PATH"
+      - run: dart pub get
+      - name: Build + test
+        run: |
+          cmake -B build native/ -GNinja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build --parallel
+          ctest --test-dir build/test --output-on-failure -j4
+      - name: Dart tests
+        env:
+          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
+        run: dart test
+
+  # ── ASAN + UBSan ─────────────────────────────────────────────────────
+  asan:
+    name: ASAN + UBSan (Ubuntu x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang-19 \
+            libflatpak-dev libglib2.0-dev libgtest-dev
+      - run: ./scripts/asan.sh build-asan
+
+  # ── Coverage (PR only) ───────────────────────────────────────────────
+  coverage:
+    name: Coverage (PR)
+    runs-on: ubuntu-24.04
+    needs: [build-ubuntu-x64]
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc g++ \
+            libflatpak-dev libglib2.0-dev \
+            libgtest-dev lcov
+      - uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
+      - run: dart pub global activate coverage
+      - run: dart pub get
+      - run: ./scripts/coverage.sh build-cov
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build-cov/coverage_html/
+          retention-days: 14
+      - uses: romeovs/lcov-reporter-action@v0.3.1
+        with:
+          lcov-file: build-cov/coverage.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          filter-changed-files: true
