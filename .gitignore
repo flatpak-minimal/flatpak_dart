@@ -1,0 +1,33 @@
+# Dart
+.dart_tool/
+.packages
+pubspec.lock
+coverage/
+
+# Build
+build*/
+*.so
+*.o
+*.a
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# Coverage
+*.gcno
+*.gcda
+coverage_html/
+lcov.info
+
+# OS
+.DS_Store
+Thumbs.db
