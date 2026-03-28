@@ -17,3 +17,12 @@ target_link_libraries(test_installation_reader PRIVATE
     PkgConfig::FLATPAK
 )
 add_test(NAME test_installation_reader COMMAND test_installation_reader)
+
+add_executable(test_transaction_bridge test_transaction_bridge.cpp)
+target_include_directories(test_transaction_bridge PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_transaction_bridge PRIVATE
+    GTest::gtest_main
+    PkgConfig::FLATPAK
+    pthread
+)
+add_test(NAME test_transaction_bridge COMMAND test_transaction_bridge)
