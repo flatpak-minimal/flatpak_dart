@@ -6,7 +6,13 @@
 /// print('${apps.length} applications installed');
 /// await client.close();
 /// ```
+import 'dart:async';
+import 'dart:ffi';
+import 'dart:isolate';
+import 'dart:typed_data';
+
 import 'application.dart';
+import 'ffi/bindings.dart';
 import 'installation.dart';
 import 'permissions.dart';
 import 'remote.dart';
@@ -84,6 +90,36 @@ class FlatpakClient {
     _installation,
     isSystem: _isSystem,
   );
+
+  // ── Update monitor (FlatpakMonitor GObject API, libflatpak >= 1.5.3) ──
+
+  /// Watch for update availability using FlatpakMonitor.
+  /// Emits [UpdateAvailableEvent] when installed refs have changed.
+  /// Works on the host; no sandbox required.
+  UpdateMonitor watchUpdates() {
+    final port = ReceivePort('flatpak.monitor');
+    final controller = StreamController<UpdateAvailableEvent>.broadcast();
+
+    final handle = FlatpakBindings.monitorCreate(
+        port.sendPort.nativePort, _installation.name);
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      if (msg[0] == 0x11) {
+        controller.add(const UpdateAvailableEvent());
+      }
+    });
+
+    return UpdateMonitor(
+      events: controller.stream,
+      close: () async {
+        FlatpakBindings.monitorClose(handle);
+        FlatpakBindings.monitorDestroy(handle);
+        controller.close();
+        port.close();
+      },
+    );
+  }
 
   Future<void> close() async {
     _installation.close();
