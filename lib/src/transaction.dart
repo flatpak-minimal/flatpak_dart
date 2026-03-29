@@ -89,8 +89,7 @@ class TransactionProgress {
   }
 
   @override
-  String toString() =>
-      '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
+  String toString() => '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
       '$progressLabel  [$status]';
 
   static String _fmt(int n) => n >= 1 << 30

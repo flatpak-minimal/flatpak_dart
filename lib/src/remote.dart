@@ -103,8 +103,7 @@ class FlatpakRemote {
   bool get isStatic => remoteType == RemoteType.static_;
 
   @override
-  String toString() =>
-      'FlatpakRemote($name  $url'
+  String toString() => 'FlatpakRemote($name  $url'
       '${subset != RemoteSubset.none ? "  subset=${subset.apiValue}" : ""}'
       '${disabled ? "  [disabled]" : ""}'
       '${isStatic ? "  [static]" : ""})';

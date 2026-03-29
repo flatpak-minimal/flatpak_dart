@@ -147,13 +147,12 @@ void main() {
     });
 
     test('flathubVerifiedFloss carries correct subset', () {
-      expect(KnownRemotes.flathubVerifiedFloss.subset,
-          RemoteSubset.verifiedFloss);
+      expect(
+          KnownRemotes.flathubVerifiedFloss.subset, RemoteSubset.verifiedFloss);
     });
 
     test('beta URL differs from stable', () {
-      expect(KnownRemotes.flathubBeta.url,
-          isNot(KnownRemotes.flathub.url));
+      expect(KnownRemotes.flathubBeta.url, isNot(KnownRemotes.flathub.url));
     });
   });
 }

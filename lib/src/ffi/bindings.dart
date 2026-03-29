@@ -26,7 +26,8 @@ typedef _ReaderPortC = Void Function(Pointer<Void>, Int64);
 typedef _ReaderPortDart = void Function(Pointer<Void>, int);
 
 typedef _ReaderPortStringC = Void Function(Pointer<Void>, Int64, Pointer<Utf8>);
-typedef _ReaderPortStringDart = void Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _ReaderPortStringDart = void Function(
+    Pointer<Void>, int, Pointer<Utf8>);
 
 typedef _ReaderListRemoteAppsC = Void Function(
     Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool);
@@ -104,32 +105,32 @@ abstract final class FlatpakBindings {
   }
 
   // ── Reader ─────────────────────────────────────────────────────────────
-  static final _readerCreate = _lib
-      .lookupFunction<_ReaderCreateC, _ReaderCreateDart>(
+  static final _readerCreate =
+      _lib.lookupFunction<_ReaderCreateC, _ReaderCreateDart>(
           'flatpak_reader_create');
-  static final _readerDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _readerDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_reader_destroy');
-  static final _readerListApps = _lib
-      .lookupFunction<_ReaderListAppsC, _ReaderListAppsDart>(
+  static final _readerListApps =
+      _lib.lookupFunction<_ReaderListAppsC, _ReaderListAppsDart>(
           'flatpak_reader_list_apps');
-  static final _readerListRemotes = _lib
-      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
+  static final _readerListRemotes =
+      _lib.lookupFunction<_ReaderPortC, _ReaderPortDart>(
           'flatpak_reader_list_remotes');
-  static final _readerGetRemoteInfo = _lib
-      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
+  static final _readerGetRemoteInfo =
+      _lib.lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
           'flatpak_reader_get_remote_info');
-  static final _readerListRemoteApps = _lib
-      .lookupFunction<_ReaderListRemoteAppsC, _ReaderListRemoteAppsDart>(
+  static final _readerListRemoteApps =
+      _lib.lookupFunction<_ReaderListRemoteAppsC, _ReaderListRemoteAppsDart>(
           'flatpak_reader_list_remote_apps');
-  static final _readerGetAppInfo = _lib
-      .lookupFunction<_ReaderGetAppInfoC, _ReaderGetAppInfoDart>(
+  static final _readerGetAppInfo =
+      _lib.lookupFunction<_ReaderGetAppInfoC, _ReaderGetAppInfoDart>(
           'flatpak_reader_get_app_info');
-  static final _readerGetPermissions = _lib
-      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
+  static final _readerGetPermissions =
+      _lib.lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
           'flatpak_reader_get_permissions');
-  static final _readerCheckUpdates = _lib
-      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
+  static final _readerCheckUpdates =
+      _lib.lookupFunction<_ReaderPortC, _ReaderPortDart>(
           'flatpak_reader_check_updates');
 
   static Pointer<Void> readerCreate(String installation) {
@@ -150,8 +151,7 @@ abstract final class FlatpakBindings {
   static void readerListRemotes(Pointer<Void> handle, int port) =>
       _readerListRemotes(handle, port);
 
-  static void readerGetRemoteInfo(
-      Pointer<Void> handle, int port, String name) {
+  static void readerGetRemoteInfo(Pointer<Void> handle, int port, String name) {
     final n = name.toNativeUtf8();
     try {
       _readerGetRemoteInfo(handle, port, n);
@@ -160,8 +160,8 @@ abstract final class FlatpakBindings {
     }
   }
 
-  static void readerListRemoteApps(Pointer<Void> handle, int port,
-      String name, String arch, bool includeRuntimes) {
+  static void readerListRemoteApps(Pointer<Void> handle, int port, String name,
+      String arch, bool includeRuntimes) {
     final n = name.toNativeUtf8();
     final a = arch.toNativeUtf8();
     try {
@@ -199,15 +199,15 @@ abstract final class FlatpakBindings {
   static void readerCheckUpdates(Pointer<Void> handle, int port) =>
       _readerCheckUpdates(handle, port);
 
-  static final _readerDropCaches = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _readerDropCaches =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_reader_drop_caches');
 
   static void readerDropCaches(Pointer<Void> handle) =>
       _readerDropCaches(handle);
 
-  static final _readerFetchRemoteMetadata = _lib
-      .lookupFunction<_ReaderFetchMetadataC, _ReaderFetchMetadataDart>(
+  static final _readerFetchRemoteMetadata =
+      _lib.lookupFunction<_ReaderFetchMetadataC, _ReaderFetchMetadataDart>(
           'flatpak_reader_fetch_remote_metadata');
 
   static void readerFetchRemoteMetadata(
@@ -223,14 +223,14 @@ abstract final class FlatpakBindings {
   }
 
   // ── Worker ─────────────────────────────────────────────────────────────
-  static final _workerCreate = _lib
-      .lookupFunction<_WorkerCreateC, _WorkerCreateDart>(
+  static final _workerCreate =
+      _lib.lookupFunction<_WorkerCreateC, _WorkerCreateDart>(
           'flatpak_worker_create');
-  static final _workerDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _workerDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_worker_destroy');
-  static final _workerCancelCurrent = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _workerCancelCurrent =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_worker_cancel_current');
 
   static Pointer<Void> workerCreate(String installation) {
@@ -247,32 +247,30 @@ abstract final class FlatpakBindings {
       _workerCancelCurrent(handle);
 
   // ── Transaction ────────────────────────────────────────────────────────
-  static final _txCreate = _lib
-      .lookupFunction<_TxCreateC, _TxCreateDart>('flatpak_tx_create');
-  static final _txDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _txCreate =
+      _lib.lookupFunction<_TxCreateC, _TxCreateDart>('flatpak_tx_create');
+  static final _txDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_tx_destroy');
-  static final _txAddInstall = _lib
-      .lookupFunction<_TxAddInstallC, _TxAddInstallDart>(
+  static final _txAddInstall =
+      _lib.lookupFunction<_TxAddInstallC, _TxAddInstallDart>(
           'flatpak_tx_add_install');
   static final _txAddUpdate = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>(
-          'flatpak_tx_add_update');
-  static final _txAddUninstall = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>(
+      .lookupFunction<_TxAddStringC, _TxAddStringDart>('flatpak_tx_add_update');
+  static final _txAddUninstall =
+      _lib.lookupFunction<_TxAddStringC, _TxAddStringDart>(
           'flatpak_tx_add_uninstall');
-  static final _txAddInstallBundle = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>(
+  static final _txAddInstallBundle =
+      _lib.lookupFunction<_TxAddStringC, _TxAddStringDart>(
           'flatpak_tx_add_install_bundle');
-  static final _txSubmit = _lib
-      .lookupFunction<_TxSubmitC, _TxSubmitDart>('flatpak_tx_submit');
+  static final _txSubmit =
+      _lib.lookupFunction<_TxSubmitC, _TxSubmitDart>('flatpak_tx_submit');
 
   static Pointer<Void> txCreate(Pointer<Void> worker, int port) =>
       _txCreate(worker, port);
   static void txDestroy(Pointer<Void> handle) => _txDestroy(handle);
 
-  static void txAddInstall(
-      Pointer<Void> handle, String remote, String ref) {
+  static void txAddInstall(Pointer<Void> handle, String remote, String ref) {
     final r = remote.toNativeUtf8();
     final f = ref.toNativeUtf8();
     try {
@@ -313,35 +311,33 @@ abstract final class FlatpakBindings {
   static void txSubmit(Pointer<Void> handle) => _txSubmit(handle);
 
   // ── User remote management ─────────────────────────────────────────────
-  static final _userRemoteCreate = _lib
-      .lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
+  static final _userRemoteCreate =
+      _lib.lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
           'flatpak_user_remote_create');
-  static final _userRemoteDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _userRemoteDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_user_remote_destroy');
   static final _userRemoteAdd = _lib
-      .lookupFunction<_RemoteAddC, _RemoteAddDart>(
-          'flatpak_user_remote_add');
-  static final _userRemoteAddFromFile = _lib
-      .lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
+      .lookupFunction<_RemoteAddC, _RemoteAddDart>('flatpak_user_remote_add');
+  static final _userRemoteAddFromFile =
+      _lib.lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
           'flatpak_user_remote_add_from_file');
-  static final _userRemoteModify = _lib
-      .lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
+  static final _userRemoteModify =
+      _lib.lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
           'flatpak_user_remote_modify');
-  static final _userRemoteRemove = _lib
-      .lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
+  static final _userRemoteRemove =
+      _lib.lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
           'flatpak_user_remote_remove');
-  static final _userRemoteUpdate = _lib
-      .lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
+  static final _userRemoteUpdate =
+      _lib.lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
           'flatpak_user_remote_update');
 
-  static Pointer<Void> userRemoteCreate(int port) =>
-      _userRemoteCreate(port);
+  static Pointer<Void> userRemoteCreate(int port) => _userRemoteCreate(port);
   static void userRemoteDestroy(Pointer<Void> handle) =>
       _userRemoteDestroy(handle);
 
-  static void userRemoteAdd(Pointer<Void> handle, String name,
-      Uint8List config, bool ifNotExists) {
+  static void userRemoteAdd(
+      Pointer<Void> handle, String name, Uint8List config, bool ifNotExists) {
     final n = name.toNativeUtf8();
     final buf = calloc<Uint8>(config.length);
     buf.asTypedList(config.length).setAll(0, config);
@@ -378,8 +374,7 @@ abstract final class FlatpakBindings {
     }
   }
 
-  static void userRemoteRemove(
-      Pointer<Void> handle, String name, bool force) {
+  static void userRemoteRemove(Pointer<Void> handle, String name, bool force) {
     final n = name.toNativeUtf8();
     try {
       _userRemoteRemove(handle, n, force);
@@ -398,26 +393,25 @@ abstract final class FlatpakBindings {
   }
 
   // ── System remote management ───────────────────────────────────────────
-  static final _systemRemoteCreate = _lib
-      .lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
+  static final _systemRemoteCreate =
+      _lib.lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
           'flatpak_system_remote_create');
-  static final _systemRemoteDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _systemRemoteDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_system_remote_destroy');
   static final _systemRemoteAdd = _lib
-      .lookupFunction<_RemoteAddC, _RemoteAddDart>(
-          'flatpak_system_remote_add');
-  static final _systemRemoteAddFromFile = _lib
-      .lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
+      .lookupFunction<_RemoteAddC, _RemoteAddDart>('flatpak_system_remote_add');
+  static final _systemRemoteAddFromFile =
+      _lib.lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
           'flatpak_system_remote_add_from_file');
-  static final _systemRemoteModify = _lib
-      .lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
+  static final _systemRemoteModify =
+      _lib.lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
           'flatpak_system_remote_modify');
-  static final _systemRemoteRemove = _lib
-      .lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
+  static final _systemRemoteRemove =
+      _lib.lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
           'flatpak_system_remote_remove');
-  static final _systemRemoteUpdate = _lib
-      .lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
+  static final _systemRemoteUpdate =
+      _lib.lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
           'flatpak_system_remote_update');
 
   static Pointer<Void> systemRemoteCreate(int port) =>
@@ -425,8 +419,8 @@ abstract final class FlatpakBindings {
   static void systemRemoteDestroy(Pointer<Void> handle) =>
       _systemRemoteDestroy(handle);
 
-  static void systemRemoteAdd(Pointer<Void> handle, String name,
-      Uint8List config, bool ifNotExists) {
+  static void systemRemoteAdd(
+      Pointer<Void> handle, String name, Uint8List config, bool ifNotExists) {
     final n = name.toNativeUtf8();
     final buf = calloc<Uint8>(config.length);
     buf.asTypedList(config.length).setAll(0, config);
@@ -483,14 +477,14 @@ abstract final class FlatpakBindings {
   }
 
   // ── Monitor ────────────────────────────────────────────────────────────
-  static final _monitorCreate = _lib
-      .lookupFunction<_MonitorCreateC, _MonitorCreateDart>(
+  static final _monitorCreate =
+      _lib.lookupFunction<_MonitorCreateC, _MonitorCreateDart>(
           'flatpak_monitor_create');
-  static final _monitorClose = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _monitorClose =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_monitor_close');
-  static final _monitorDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+  static final _monitorDestroy =
+      _lib.lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
           'flatpak_monitor_destroy');
 
   static Pointer<Void> monitorCreate(int port, String installation) {

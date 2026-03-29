@@ -65,13 +65,11 @@ class FlatpakClient {
   /// Fetch metadata (sandbox permissions) for a remote ref before installing.
   /// Returns parsed key-value entries from the [Context], [Session Bus Policy],
   /// [System Bus Policy], and [Environment] sections of the app's metadata.
-  Future<List<MetadataEntry>> fetchRemoteMetadata(
-          String remote, String ref) =>
+  Future<List<MetadataEntry>> fetchRemoteMetadata(String remote, String ref) =>
       _installation.fetchRemoteMetadata(remote, ref);
 
   /// Check which installed applications have updates available.
-  Future<List<FlatpakRef>> checkForUpdates() =>
-      _installation.checkForUpdates();
+  Future<List<FlatpakRef>> checkForUpdates() => _installation.checkForUpdates();
 
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 
