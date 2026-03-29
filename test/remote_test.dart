@@ -95,7 +95,8 @@ void main() {
 
     test('fromFlatpakrepoFile preserves path', () {
       final cfg = FlatpakRemoteConfig.fromFlatpakrepoFile(
-          '/tmp/gnome-nightly.flatpakrepo');
+        '/tmp/gnome-nightly.flatpakrepo',
+      );
       // Should not throw; path is carried internally
       expect(cfg.url, isNull);
     });
@@ -148,7 +149,9 @@ void main() {
 
     test('flathubVerifiedFloss carries correct subset', () {
       expect(
-          KnownRemotes.flathubVerifiedFloss.subset, RemoteSubset.verifiedFloss);
+        KnownRemotes.flathubVerifiedFloss.subset,
+        RemoteSubset.verifiedFloss,
+      );
     });
 
     test('beta URL differs from stable', () {

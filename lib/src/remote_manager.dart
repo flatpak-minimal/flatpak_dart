@@ -39,8 +39,11 @@ class FlatpakRemoteManager {
     String arch = '',
     bool includeRuntimes = false,
   }) =>
-      _installation.listRemoteApps(name,
-          arch: arch, includeRuntimes: includeRuntimes);
+      _installation.listRemoteApps(
+        name,
+        arch: arch,
+        includeRuntimes: includeRuntimes,
+      );
 
   // ── Write operations ───────────────────────────────────────────────────
 
@@ -51,8 +54,11 @@ class FlatpakRemoteManager {
     bool ifNotExists = true,
   }) async {
     if (config.flatpakrepoPath != null) {
-      return addFromFile(name, config.flatpakrepoPath!,
-          ifNotExists: ifNotExists);
+      return addFromFile(
+        name,
+        config.flatpakrepoPath!,
+        ifNotExists: ifNotExists,
+      );
     }
     final buf = GlazeCodec.encodeRemoteConfig(config);
     final port = ReceivePort('flatpak.remoteAdd');
@@ -61,8 +67,9 @@ class FlatpakRemoteManager {
     _listenForResult(port, completer);
 
     if (_isSystem) {
-      final handle =
-          FlatpakBindings.systemRemoteCreate(port.sendPort.nativePort);
+      final handle = FlatpakBindings.systemRemoteCreate(
+        port.sendPort.nativePort,
+      );
       FlatpakBindings.systemRemoteAdd(handle, name, buf, ifNotExists);
     } else {
       final handle = FlatpakBindings.userRemoteCreate(port.sendPort.nativePort);
@@ -84,14 +91,23 @@ class FlatpakRemoteManager {
     _listenForResult(port, completer);
 
     if (_isSystem) {
-      final handle =
-          FlatpakBindings.systemRemoteCreate(port.sendPort.nativePort);
+      final handle = FlatpakBindings.systemRemoteCreate(
+        port.sendPort.nativePort,
+      );
       FlatpakBindings.systemRemoteAddFromFile(
-          handle, name, flatpakrepoPath, ifNotExists);
+        handle,
+        name,
+        flatpakrepoPath,
+        ifNotExists,
+      );
     } else {
       final handle = FlatpakBindings.userRemoteCreate(port.sendPort.nativePort);
       FlatpakBindings.userRemoteAddFromFile(
-          handle, name, flatpakrepoPath, ifNotExists);
+        handle,
+        name,
+        flatpakrepoPath,
+        ifNotExists,
+      );
     }
 
     return completer.future;
@@ -106,8 +122,9 @@ class FlatpakRemoteManager {
     _listenForResult(port, completer);
 
     if (_isSystem) {
-      final handle =
-          FlatpakBindings.systemRemoteCreate(port.sendPort.nativePort);
+      final handle = FlatpakBindings.systemRemoteCreate(
+        port.sendPort.nativePort,
+      );
       FlatpakBindings.systemRemoteModify(handle, name, buf);
     } else {
       final handle = FlatpakBindings.userRemoteCreate(port.sendPort.nativePort);
@@ -145,8 +162,9 @@ class FlatpakRemoteManager {
     _listenForResult(port, completer);
 
     if (_isSystem) {
-      final handle =
-          FlatpakBindings.systemRemoteCreate(port.sendPort.nativePort);
+      final handle = FlatpakBindings.systemRemoteCreate(
+        port.sendPort.nativePort,
+      );
       FlatpakBindings.systemRemoteRemove(handle, name, force);
     } else {
       final handle = FlatpakBindings.userRemoteCreate(port.sendPort.nativePort);
@@ -164,8 +182,9 @@ class FlatpakRemoteManager {
     _listenForResult(port, completer);
 
     if (_isSystem) {
-      final handle =
-          FlatpakBindings.systemRemoteCreate(port.sendPort.nativePort);
+      final handle = FlatpakBindings.systemRemoteCreate(
+        port.sendPort.nativePort,
+      );
       FlatpakBindings.systemRemoteUpdate(handle, name);
     } else {
       final handle = FlatpakBindings.userRemoteCreate(port.sendPort.nativePort);

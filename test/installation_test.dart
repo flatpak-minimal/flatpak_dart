@@ -87,8 +87,9 @@ void main() {
 
   group('FlatpakRemoteConfig', () {
     test('fromFlatpakrepoFile creates correct type', () {
-      final cfg =
-          FlatpakRemoteConfig.fromFlatpakrepoFile('/tmp/test.flatpakrepo');
+      final cfg = FlatpakRemoteConfig.fromFlatpakrepoFile(
+        '/tmp/test.flatpakrepo',
+      );
       // The config should be usable (not throw)
       expect(cfg.url, isNull);
     });

@@ -102,8 +102,10 @@ void main() {
     });
 
     test('isAlreadyRunning matches FLATPAK_ERROR_ALREADY_RUNNING', () {
-      const e =
-          FlatpakTransactionException('FLATPAK_ERROR_ALREADY_RUNNING', ref: '');
+      const e = FlatpakTransactionException(
+        'FLATPAK_ERROR_ALREADY_RUNNING',
+        ref: '',
+      );
       expect(e.isAlreadyRunning, isTrue);
     });
 
