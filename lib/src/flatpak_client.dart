@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'application.dart';
 import 'ffi/bindings.dart';
+import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
 import 'permissions.dart';
 import 'remote.dart';
@@ -61,6 +62,13 @@ class FlatpakClient {
   Future<List<FlatpakPermission>> permissions(String appId) =>
       _installation.getPermissions(appId);
 
+  /// Fetch metadata (sandbox permissions) for a remote ref before installing.
+  /// Returns parsed key-value entries from the [Context], [Session Bus Policy],
+  /// [System Bus Policy], and [Environment] sections of the app's metadata.
+  Future<List<MetadataEntry>> fetchRemoteMetadata(
+          String remote, String ref) =>
+      _installation.fetchRemoteMetadata(remote, ref);
+
   /// Check which installed applications have updates available.
   Future<List<FlatpakRef>> checkForUpdates() =>
       _installation.checkForUpdates();
@@ -82,7 +90,7 @@ class FlatpakClient {
       _tx.installBundle(bundlePath);
 
   /// Build a multi-operation transaction.
-  TransactionBuilder transaction() => TransactionBuilder._(_tx);
+  TransactionBuilder transaction() => TransactionBuilder.internal(_tx);
 
   // ── Remote management ────────────────────────────────────────────────
 
@@ -90,6 +98,11 @@ class FlatpakClient {
     _installation,
     isSystem: _isSystem,
   );
+
+  /// Invalidate cached data so subsequent reads return fresh results.
+  /// Call after mutations (add/remove/enable/disable remote) when using
+  /// the same client for both writes and reads.
+  void dropCaches() => _installation.dropCaches();
 
   // ── Update monitor (FlatpakMonitor GObject API, libflatpak >= 1.5.3) ──
 

@@ -24,37 +24,37 @@ class _KnownEntry {
 }
 
 final _knownEntries = <_KnownEntry>[
-  _KnownEntry('Flathub',              'flathub',
+  const _KnownEntry('Flathub',              'flathub',
       KnownRemotes.flathub,
       'The main Flatpak repository — all apps.'),
-  _KnownEntry('Flathub Verified',     'flathub-verified',
+  const _KnownEntry('Flathub Verified',     'flathub-verified',
       KnownRemotes.flathubVerified,
       'Upstream-maintained apps only (--subset=verified).'),
-  _KnownEntry('Flathub FLOSS',        'flathub-floss',
+  const _KnownEntry('Flathub FLOSS',        'flathub-floss',
       KnownRemotes.flathubFloss,
       'Open-source apps only (--subset=floss).'),
-  _KnownEntry('Flathub Verified FLOSS','flathub-verified_floss',
+  const _KnownEntry('Flathub Verified FLOSS','flathub-verified_floss',
       KnownRemotes.flathubVerifiedFloss,
       'Open-source + upstream-maintained (--subset=verified_floss).'),
-  _KnownEntry('Flathub Beta',         'flathub-beta',
+  const _KnownEntry('Flathub Beta',         'flathub-beta',
       KnownRemotes.flathubBeta,
       'Pre-release Flathub channel.'),
-  _KnownEntry('Fedora',               'fedora',
+  const _KnownEntry('Fedora',               'fedora',
       KnownRemotes.fedora,
       'Fedora-built apps via OCI (oci+https://).'),
-  _KnownEntry('elementary AppCenter', 'elementaryos',
+  const _KnownEntry('elementary AppCenter', 'elementaryos',
       KnownRemotes.elementaryOs,
       'Curated apps for elementary OS.'),
-  _KnownEntry('PureOS',               'PureOS',
+  const _KnownEntry('PureOS',               'PureOS',
       KnownRemotes.pureOs,
       'Purism apps (security-focused).'),
-  _KnownEntry('Igalia',               'igalia',
+  const _KnownEntry('Igalia',               'igalia',
       KnownRemotes.igalia,
       'Gobby, Linphone, WebKit SDK.'),
-  _KnownEntry('GNOME Nightly',        'gnome-nightly',
+  const _KnownEntry('GNOME Nightly',        'gnome-nightly',
       KnownRemotes.gnomeNightly,
       'Nightly GNOME apps and runtime.'),
-  _KnownEntry('KDE Runtime Nightly',  'kde-runtime-nightly',
+  const _KnownEntry('KDE Runtime Nightly',  'kde-runtime-nightly',
       KnownRemotes.kdeRuntimeNightly,
       'Required by KDE per-app nightly remotes.'),
 ];
@@ -155,10 +155,10 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
 
                 // ── Known remote picker ──────────────────────────────────
                 if (_mode == _AddMode.known) ...[
-                  _Label('Repository'),
+                  const _Label('Repository'),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<_KnownEntry>(
-                    value:       _selected,
+                    initialValue: _selected,
                     dropdownColor: AppTheme.bg2,
                     style:       AppTheme.ui(size: 13),
                     decoration:  const InputDecoration(),
@@ -181,7 +181,7 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
 
                 // ── Custom remote fields ─────────────────────────────────
                 if (_mode == _AddMode.custom) ...[
-                  _Label('Remote URL'),
+                  const _Label('Remote URL'),
                   const SizedBox(height: 6),
                   TextFormField(
                     controller: _urlCtrl,
@@ -197,7 +197,7 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
                 const SizedBox(height: 16),
 
                 // ── Remote name (both modes) ─────────────────────────────
-                _Label('Remote name'),
+                const _Label('Remote name'),
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _nameCtrl,
@@ -297,10 +297,10 @@ class _Seg extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
-            color:        active ? AppTheme.teal.withOpacity(0.12) : Colors.transparent,
+            color:        active ? AppTheme.teal.withValues(alpha: 0.12) : Colors.transparent,
             borderRadius: BorderRadius.circular(3),
             border:       active
-                ? Border.all(color: AppTheme.teal.withOpacity(0.4), width: 0.5)
+                ? Border.all(color: AppTheme.teal.withValues(alpha: 0.4), width: 0.5)
                 : Border.all(color: Colors.transparent),
           ),
           alignment: Alignment.center,

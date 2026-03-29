@@ -62,6 +62,11 @@ class TransactionWorker {
     // Signal the currently-executing transaction to cancel.
     void cancel_current();
 
+    // Access the installation (needed to create FlatpakTransaction objects).
+    [[nodiscard]] FlatpakInstallation* installation() const {
+        return inst_;
+    }
+
    private:
     void loop();
     void execute(const PendingTx& item);

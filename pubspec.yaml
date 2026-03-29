@@ -1,23 +1,27 @@
 name: flatpak_dart
-description: >
+description: >-
   Typed Dart API for managing Flatpak applications on Linux.
-  Uses native_comms + libflatpak C API for zero-copy integration.
-  No D-Bus client library required.
+  Drives libflatpak directly via C++23 FFI bridge — list, install, update,
+  uninstall, remote management, permissions, and update monitoring.
 version: 0.1.0
-repository: https://github.com/<org>/flatpak_dart
+repository: https://github.com/jwinarske/flatpak_dart
+issue_tracker: https://github.com/jwinarske/flatpak_dart/issues
+homepage: https://github.com/jwinarske/flatpak_dart
+
+platforms:
+  linux:
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
+  code_assets: ^0.19.7
   ffi: ^2.1.0
+  hooks: ^0.20.1
   path: ^1.9.0
 
 dev_dependencies:
   test: ^1.24.0
-  mockito: ^5.4.0
-  build_runner: ^2.4.0
   lints: ^4.0.0
-  coverage: ^1.7.0
 
 topics: [linux, flatpak, desktop, ffi, libflatpak]

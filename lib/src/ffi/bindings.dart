@@ -5,36 +5,43 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
+
 import '../internal/library_loader.dart';
 
 // Typedefs for C function signatures.
 typedef _InitC = Void Function(Pointer<Void>);
 typedef _InitDart = void Function(Pointer<Void>);
 
-typedef _ReaderCreateC = Pointer<Void> Function(Int64, Pointer<Utf8>);
-typedef _ReaderCreateDart = Pointer<Void> Function(int, Pointer<Utf8>);
+typedef _ReaderCreateC = Pointer<Void> Function(Pointer<Utf8>);
+typedef _ReaderCreateDart = Pointer<Void> Function(Pointer<Utf8>);
 
 typedef _ReaderDestroyC = Void Function(Pointer<Void>);
 typedef _ReaderDestroyDart = void Function(Pointer<Void>);
 
-typedef _ReaderListAppsC = Void Function(Pointer<Void>, Bool);
-typedef _ReaderListAppsDart = void Function(Pointer<Void>, bool);
+typedef _ReaderListAppsC = Void Function(Pointer<Void>, Int64, Bool);
+typedef _ReaderListAppsDart = void Function(Pointer<Void>, int, bool);
 
-typedef _ReaderVoidC = Void Function(Pointer<Void>);
-typedef _ReaderVoidDart = void Function(Pointer<Void>);
+typedef _ReaderPortC = Void Function(Pointer<Void>, Int64);
+typedef _ReaderPortDart = void Function(Pointer<Void>, int);
 
-typedef _ReaderStringC = Void Function(Pointer<Void>, Pointer<Utf8>);
-typedef _ReaderStringDart = void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _ReaderPortStringC = Void Function(Pointer<Void>, Int64, Pointer<Utf8>);
+typedef _ReaderPortStringDart = void Function(Pointer<Void>, int, Pointer<Utf8>);
 
 typedef _ReaderListRemoteAppsC = Void Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool);
+    Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool);
 typedef _ReaderListRemoteAppsDart = void Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, bool);
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, bool);
 
 typedef _ReaderGetAppInfoC = Void Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+    Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _ReaderGetAppInfoDart = void Function(
-    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+
+typedef _ReaderFetchMetadataC = Void Function(
+    Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>);
+typedef _ReaderFetchMetadataDart = void Function(
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>);
 
 // Worker typedefs
 typedef _WorkerCreateC = Pointer<Void> Function(Pointer<Utf8>);
@@ -85,13 +92,16 @@ typedef _MonitorCreateDart = Pointer<Void> Function(int, Pointer<Utf8>);
 
 /// Lazy bindings to the flatpak_nc shared library.
 abstract final class FlatpakBindings {
-  static final DynamicLibrary _lib = LibraryLoader.load();
+  static final DynamicLibrary _lib = _loadAndInit();
 
-  // ── Init ───────────────────────────────────────────────────────────────
-  static final _init = _lib.lookupFunction<_InitC, _InitDart>(
-      'flatpak_bridge_init');
-
-  static void init(Pointer<Void> data) => _init(data);
+  static DynamicLibrary _loadAndInit() {
+    final lib = LibraryLoader.load();
+    // Initialize Dart DL API pointers so the C++ side can call
+    // Dart_PostCObject_DL from any thread.
+    final init = lib.lookupFunction<_InitC, _InitDart>('flatpak_bridge_init');
+    init(NativeApi.initializeApiDLData);
+    return lib;
+  }
 
   // ── Reader ─────────────────────────────────────────────────────────────
   static final _readerCreate = _lib
@@ -104,10 +114,10 @@ abstract final class FlatpakBindings {
       .lookupFunction<_ReaderListAppsC, _ReaderListAppsDart>(
           'flatpak_reader_list_apps');
   static final _readerListRemotes = _lib
-      .lookupFunction<_ReaderVoidC, _ReaderVoidDart>(
+      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
           'flatpak_reader_list_remotes');
   static final _readerGetRemoteInfo = _lib
-      .lookupFunction<_ReaderStringC, _ReaderStringDart>(
+      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
           'flatpak_reader_get_remote_info');
   static final _readerListRemoteApps = _lib
       .lookupFunction<_ReaderListRemoteAppsC, _ReaderListRemoteAppsDart>(
@@ -116,16 +126,16 @@ abstract final class FlatpakBindings {
       .lookupFunction<_ReaderGetAppInfoC, _ReaderGetAppInfoDart>(
           'flatpak_reader_get_app_info');
   static final _readerGetPermissions = _lib
-      .lookupFunction<_ReaderStringC, _ReaderStringDart>(
+      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
           'flatpak_reader_get_permissions');
   static final _readerCheckUpdates = _lib
-      .lookupFunction<_ReaderVoidC, _ReaderVoidDart>(
+      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
           'flatpak_reader_check_updates');
 
-  static Pointer<Void> readerCreate(int port, String installation) {
+  static Pointer<Void> readerCreate(String installation) {
     final inst = installation.toNativeUtf8();
     try {
-      return _readerCreate(port, inst);
+      return _readerCreate(inst);
     } finally {
       calloc.free(inst);
     }
@@ -133,40 +143,42 @@ abstract final class FlatpakBindings {
 
   static void readerDestroy(Pointer<Void> handle) => _readerDestroy(handle);
 
-  static void readerListApps(Pointer<Void> handle, bool includeRuntimes) =>
-      _readerListApps(handle, includeRuntimes);
+  static void readerListApps(
+          Pointer<Void> handle, int port, bool includeRuntimes) =>
+      _readerListApps(handle, port, includeRuntimes);
 
-  static void readerListRemotes(Pointer<Void> handle) =>
-      _readerListRemotes(handle);
+  static void readerListRemotes(Pointer<Void> handle, int port) =>
+      _readerListRemotes(handle, port);
 
-  static void readerGetRemoteInfo(Pointer<Void> handle, String name) {
+  static void readerGetRemoteInfo(
+      Pointer<Void> handle, int port, String name) {
     final n = name.toNativeUtf8();
     try {
-      _readerGetRemoteInfo(handle, n);
+      _readerGetRemoteInfo(handle, port, n);
     } finally {
       calloc.free(n);
     }
   }
 
-  static void readerListRemoteApps(Pointer<Void> handle, String name,
-      String arch, bool includeRuntimes) {
+  static void readerListRemoteApps(Pointer<Void> handle, int port,
+      String name, String arch, bool includeRuntimes) {
     final n = name.toNativeUtf8();
     final a = arch.toNativeUtf8();
     try {
-      _readerListRemoteApps(handle, n, a, includeRuntimes);
+      _readerListRemoteApps(handle, port, n, a, includeRuntimes);
     } finally {
       calloc.free(n);
       calloc.free(a);
     }
   }
 
-  static void readerGetAppInfo(
-      Pointer<Void> handle, String appId, String arch, String branch) {
+  static void readerGetAppInfo(Pointer<Void> handle, int port, String appId,
+      String arch, String branch) {
     final id = appId.toNativeUtf8();
     final a = arch.toNativeUtf8();
     final b = branch.toNativeUtf8();
     try {
-      _readerGetAppInfo(handle, id, a, b);
+      _readerGetAppInfo(handle, port, id, a, b);
     } finally {
       calloc.free(id);
       calloc.free(a);
@@ -174,17 +186,41 @@ abstract final class FlatpakBindings {
     }
   }
 
-  static void readerGetPermissions(Pointer<Void> handle, String appId) {
+  static void readerGetPermissions(
+      Pointer<Void> handle, int port, String appId) {
     final id = appId.toNativeUtf8();
     try {
-      _readerGetPermissions(handle, id);
+      _readerGetPermissions(handle, port, id);
     } finally {
       calloc.free(id);
     }
   }
 
-  static void readerCheckUpdates(Pointer<Void> handle) =>
-      _readerCheckUpdates(handle);
+  static void readerCheckUpdates(Pointer<Void> handle, int port) =>
+      _readerCheckUpdates(handle, port);
+
+  static final _readerDropCaches = _lib
+      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
+          'flatpak_reader_drop_caches');
+
+  static void readerDropCaches(Pointer<Void> handle) =>
+      _readerDropCaches(handle);
+
+  static final _readerFetchRemoteMetadata = _lib
+      .lookupFunction<_ReaderFetchMetadataC, _ReaderFetchMetadataDart>(
+          'flatpak_reader_fetch_remote_metadata');
+
+  static void readerFetchRemoteMetadata(
+      Pointer<Void> handle, int port, String remote, String ref) {
+    final r = remote.toNativeUtf8();
+    final f = ref.toNativeUtf8();
+    try {
+      _readerFetchRemoteMetadata(handle, port, r, f);
+    } finally {
+      calloc.free(r);
+      calloc.free(f);
+    }
+  }
 
   // ── Worker ─────────────────────────────────────────────────────────────
   static final _workerCreate = _lib

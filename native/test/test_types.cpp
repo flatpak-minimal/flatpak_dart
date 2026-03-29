@@ -4,8 +4,8 @@
 
 #include "flatpak_types.h"
 
-TEST(FlatpakRef, RoundtripBasic) {
-    FlatpakRef orig;
+TEST(FpRef, RoundtripBasic) {
+    FpRef orig;
     orig.kind = "app";
     orig.name = "org.gnome.Calculator";
     orig.arch = "x86_64";
@@ -14,10 +14,10 @@ TEST(FlatpakRef, RoundtripBasic) {
     orig.collectionId = "org.flathub.Stable";
 
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
-    FlatpakRef decoded;
-    glz::read_binary(decoded, buf);
+    FpRef decoded;
+    glz::read_binary(buf, decoded);
 
     EXPECT_EQ(decoded.kind, orig.kind);
     EXPECT_EQ(decoded.name, orig.name);
@@ -27,13 +27,13 @@ TEST(FlatpakRef, RoundtripBasic) {
     EXPECT_EQ(decoded.collectionId, orig.collectionId);
 }
 
-TEST(FlatpakRef, EmptyFields) {
-    FlatpakRef orig;
+TEST(FpRef, EmptyFields) {
+    FpRef orig;
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
-    FlatpakRef decoded;
-    glz::read_binary(decoded, buf);
+    FpRef decoded;
+    glz::read_binary(buf, decoded);
 
     EXPECT_TRUE(decoded.kind.empty());
     EXPECT_TRUE(decoded.name.empty());
@@ -57,10 +57,10 @@ TEST(InstalledApp, RoundtripFull) {
     orig.appDataIcon = "org.gnome.Calculator";
 
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
     InstalledApp decoded;
-    glz::read_binary(decoded, buf);
+    glz::read_binary(buf, decoded);
 
     EXPECT_EQ(decoded.ref.name, orig.ref.name);
     EXPECT_EQ(decoded.origin, orig.origin);
@@ -81,10 +81,10 @@ TEST(TransactionProgress, RoundtripBasic) {
     orig.status = "Downloading";
 
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
     TransactionProgress decoded;
-    glz::read_binary(decoded, buf);
+    glz::read_binary(buf, decoded);
 
     EXPECT_EQ(decoded.op, orig.op);
     EXPECT_EQ(decoded.ref, orig.ref);
@@ -104,10 +104,10 @@ TEST(TransactionProgress, ZeroBytesTotal) {
     orig.status = "Downloading";
 
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
     TransactionProgress decoded;
-    glz::read_binary(decoded, buf);
+    glz::read_binary(buf, decoded);
 
     EXPECT_EQ(decoded.bytesTotal, 0u);
     EXPECT_EQ(decoded.bytesTransferred, orig.bytesTransferred);

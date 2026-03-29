@@ -48,8 +48,8 @@ class FlatpakRemoteManager {
   Future<void> add(String name, FlatpakRemoteConfig config, {
     bool ifNotExists = true,
   }) async {
-    if (config is _FlatpakrepoFileConfig) {
-      return addFromFile(name, config.flatpakrepoPath,
+    if (config.flatpakrepoPath != null) {
+      return addFromFile(name, config.flatpakrepoPath!,
           ifNotExists: ifNotExists);
     }
     final buf = GlazeCodec.encodeRemoteConfig(config);
@@ -118,24 +118,10 @@ class FlatpakRemoteManager {
 
   /// Change the subset filter on an existing Flathub remote.
   Future<void> modifySubset(String name, RemoteSubset subset) async {
-    if (subset == RemoteSubset.none) {
-      final current = await info(name);
-      await remove(name, force: true);
-      await add(
-        name,
-        FlatpakRemoteConfig(
-          url: current.url,
-          title: current.title,
-          comment: current.comment,
-          collectionId: current.collectionId,
-          priority: current.priority,
-          gpgVerify: current.gpgVerify,
-          noDeps: current.noDeps,
-        ),
-      );
-    } else {
-      await modify(name, FlatpakRemoteConfig(subset: subset));
-    }
+    // Both setting and clearing a subset use modify — the C++ bridge
+    // writes the subset key to the remote's ostree config.
+    // Passing RemoteSubset.none sends an empty string which clears it.
+    await modify(name, FlatpakRemoteConfig(subset: subset));
   }
 
   /// Enable a disabled remote.
@@ -207,6 +193,3 @@ class FlatpakRemoteManager {
     });
   }
 }
-
-// Re-export private subclass for type checking in add().
-typedef _FlatpakrepoFileConfig = Never; // Placeholder — actual type is in remote.dart

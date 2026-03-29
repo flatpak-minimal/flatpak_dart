@@ -156,6 +156,10 @@ class FlatpakRemoteConfig {
     this.noDeps,
   });
 
+  /// Path to a `.flatpakrepo` keyfile, if this config was created via
+  /// [fromFlatpakrepoFile]. Null otherwise.
+  String? get flatpakrepoPath => null;
+
   /// Construct from a pre-downloaded `.flatpakrepo` keyfile.
   /// The C bridge will call libflatpak's `flatpak_repo_from_bytes()` to
   /// extract all fields; this constructor just carries the file path.
@@ -164,6 +168,10 @@ class FlatpakRemoteConfig {
 }
 
 class _FlatpakrepoFileConfig extends FlatpakRemoteConfig {
-  final String flatpakrepoPath;
-  const _FlatpakrepoFileConfig(this.flatpakrepoPath) : super();
+  final String _path;
+
+  const _FlatpakrepoFileConfig(this._path) : super();
+
+  @override
+  String? get flatpakrepoPath => _path;
 }

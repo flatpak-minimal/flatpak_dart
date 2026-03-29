@@ -1,6 +1,5 @@
 // FlatpakInstallation — wraps the C++ InstallationReader handle.
-// All read operations are synchronous FFI calls that post results
-// to a ReceivePort.
+// Reader is created once; each operation gets its own ReceivePort.
 
 import 'dart:async';
 import 'dart:ffi';
@@ -16,25 +15,19 @@ import 'remote.dart';
 
 class FlatpakInstallation {
   final String name;
-  late final Pointer<Void> _readerHandle;
-
-  Pointer<Void> get readerHandle => _readerHandle;
+  late final Pointer<Void> _handle = FlatpakBindings.readerCreate(name);
 
   FlatpakInstallation(this.name);
 
-  void initReader(int port) {
-    _readerHandle = FlatpakBindings.readerCreate(port, name);
-  }
+  /// Invalidate libflatpak's cached data so subsequent reads return fresh results.
+  void dropCaches() => FlatpakBindings.readerDropCaches(_handle);
 
-  /// List installed applications (and optionally runtimes).
   Future<List<FlatpakApplication>> listApplications({
     bool includeRuntimes = false,
   }) async {
     final port = ReceivePort('flatpak.listApps');
     final completer = Completer<List<FlatpakApplication>>();
     final results = <FlatpakApplication>[];
-
-    initReader(port.sendPort.nativePort);
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
@@ -45,25 +38,25 @@ class FlatpakInstallation {
           }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakNotFoundException(err));
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
           port.close();
         case 0xFF:
-          completer.complete(results);
+          if (!completer.isCompleted) completer.complete(results);
           port.close();
       }
     });
 
-    FlatpakBindings.readerListApps(_readerHandle, includeRuntimes);
+    FlatpakBindings.readerListApps(
+        _handle, port.sendPort.nativePort, includeRuntimes);
     return completer.future;
   }
 
-  /// List configured remotes.
   Future<List<FlatpakRemote>> listRemotes() async {
     final port = ReceivePort('flatpak.listRemotes');
     final completer = Completer<List<FlatpakRemote>>();
     final results = <FlatpakRemote>[];
-
-    initReader(port.sendPort.nativePort);
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
@@ -74,54 +67,54 @@ class FlatpakInstallation {
           }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakException(err) as Object);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
           port.close();
         case 0xFF:
-          completer.complete(results);
+          if (!completer.isCompleted) completer.complete(results);
           port.close();
       }
     });
 
-    FlatpakBindings.readerListRemotes(_readerHandle);
+    FlatpakBindings.readerListRemotes(_handle, port.sendPort.nativePort);
     return completer.future;
   }
 
-  /// Get detailed info for one remote.
-  Future<FlatpakRemote> getRemoteInfo(String name) async {
+  Future<FlatpakRemote> getRemoteInfo(String remoteName) async {
     final port = ReceivePort('flatpak.remoteInfo');
     final completer = Completer<FlatpakRemote>();
-
-    initReader(port.sendPort.nativePort);
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
       switch (msg[0]) {
         case 0x01:
-          if (msg.length > 1) {
+          if (msg.length > 1 && !completer.isCompleted) {
             completer.complete(GlazeCodec.decodeFlatpakRemote(msg, 1));
           }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakNotFoundException(err));
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
           port.close();
         case 0xFF:
           port.close();
       }
     });
 
-    FlatpakBindings.readerGetRemoteInfo(_readerHandle, name);
+    FlatpakBindings.readerGetRemoteInfo(
+        _handle, port.sendPort.nativePort, remoteName);
     return completer.future;
   }
 
-  /// Stream refs available in a remote.
-  Stream<FlatpakRef> listRemoteApps(String remoteName, {
+  Stream<FlatpakRef> listRemoteApps(
+    String remoteName, {
     String arch = '',
     bool includeRuntimes = false,
   }) {
     final controller = StreamController<FlatpakRef>();
     final port = ReceivePort('flatpak.listRemoteApps');
-
-    initReader(port.sendPort.nativePort);
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
@@ -142,72 +135,70 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerListRemoteApps(
-        _readerHandle, remoteName, arch, includeRuntimes);
+        _handle, port.sendPort.nativePort, remoteName, arch, includeRuntimes);
     return controller.stream;
   }
 
-  /// Get detailed info for one installed application.
-  Future<FlatpakApplication> getAppInfo(String appId, {
+  Future<FlatpakApplication> getAppInfo(
+    String appId, {
     String arch = '',
     String branch = '',
   }) async {
     final port = ReceivePort('flatpak.appInfo');
     final completer = Completer<FlatpakApplication>();
 
-    initReader(port.sendPort.nativePort);
-
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
       switch (msg[0]) {
         case 0x01:
-          if (msg.length > 1) {
+          if (msg.length > 1 && !completer.isCompleted) {
             completer.complete(GlazeCodec.decodeInstalledApp(msg, 1));
           }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakNotFoundException(err));
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
           port.close();
         case 0xFF:
           port.close();
       }
     });
 
-    FlatpakBindings.readerGetAppInfo(_readerHandle, appId, arch, branch);
+    FlatpakBindings.readerGetAppInfo(
+        _handle, port.sendPort.nativePort, appId, arch, branch);
     return completer.future;
   }
 
-  /// Get permission overrides for an application.
   Future<List<FlatpakPermission>> getPermissions(String appId) async {
     final port = ReceivePort('flatpak.permissions');
     final completer = Completer<List<FlatpakPermission>>();
     final results = <FlatpakPermission>[];
 
-    initReader(port.sendPort.nativePort);
-
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
       switch (msg[0]) {
-        case 0xFF:
-          completer.complete(results);
-          port.close();
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakNotFoundException(err));
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
           port.close();
       }
     });
 
-    FlatpakBindings.readerGetPermissions(_readerHandle, appId);
+    FlatpakBindings.readerGetPermissions(
+        _handle, port.sendPort.nativePort, appId);
     return completer.future;
   }
 
-  /// Check which installed applications have updates available.
   Future<List<FlatpakRef>> checkForUpdates() async {
     final port = ReceivePort('flatpak.checkUpdates');
     final completer = Completer<List<FlatpakRef>>();
     final results = <FlatpakRef>[];
-
-    initReader(port.sendPort.nativePort);
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
@@ -218,19 +209,50 @@ class FlatpakInstallation {
           }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
-          completer.completeError(FlatpakException(err) as Object);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
           port.close();
         case 0xFF:
-          completer.complete(results);
+          if (!completer.isCompleted) completer.complete(results);
           port.close();
       }
     });
 
-    FlatpakBindings.readerCheckUpdates(_readerHandle);
+    FlatpakBindings.readerCheckUpdates(_handle, port.sendPort.nativePort);
+    return completer.future;
+  }
+
+  /// Fetch metadata (permissions) for a remote ref without installing it.
+  Future<List<MetadataEntry>> fetchRemoteMetadata(
+      String remote, String ref) async {
+    final port = ReceivePort('flatpak.fetchMetadata');
+    final completer = Completer<List<MetadataEntry>>();
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1 && !completer.isCompleted) {
+            completer.complete(GlazeCodec.decodeRemoteMetadata(msg, 1));
+          }
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerFetchRemoteMetadata(
+        _handle, port.sendPort.nativePort, remote, ref);
     return completer.future;
   }
 
   void close() {
-    FlatpakBindings.readerDestroy(_readerHandle);
+    FlatpakBindings.readerDestroy(_handle);
   }
 }

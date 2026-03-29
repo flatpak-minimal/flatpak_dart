@@ -184,8 +184,8 @@ class _PanelHeader extends StatelessWidget {
             child: InkWell(
               onTap:        onRepopulate,
               borderRadius: BorderRadius.circular(3),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
                 child: Icon(Icons.restart_alt,
                     size: 15, color: AppTheme.fg2),
               ),
@@ -198,8 +198,8 @@ class _PanelHeader extends StatelessWidget {
             child: InkWell(
               onTap:        onAdd,
               borderRadius: BorderRadius.circular(3),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
+              child: const Padding(
+                padding: EdgeInsets.all(4),
                 child: Icon(Icons.add, size: 16, color: AppTheme.teal),
               ),
             ),
@@ -244,7 +244,7 @@ class _RemoteTileState extends State<_RemoteTile> {
           duration: const Duration(milliseconds: 100),
           decoration: BoxDecoration(
             color: sel
-                ? AppTheme.teal.withOpacity(0.08)
+                ? AppTheme.teal.withValues(alpha: 0.08)
                 : _hovering
                     ? AppTheme.bg3
                     : Colors.transparent,
@@ -342,9 +342,9 @@ class _SubsetBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
-        color:        color.withOpacity(0.1),
+        color:        color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(2),
-        border:       Border.all(color: color.withOpacity(0.3), width: 0.5),
+        border:       Border.all(color: color.withValues(alpha: 0.3), width: 0.5),
       ),
       child: Text(label,
           style: AppTheme.ui(size: 9, color: color, weight: FontWeight.w600)),
@@ -371,7 +371,7 @@ class _OverflowMenu extends StatelessWidget {
           side:         const BorderSide(color: AppTheme.border, width: 0.5),
         ),
         iconSize:    14,
-        icon: Icon(Icons.more_vert, size: 14, color: AppTheme.fg2),
+        icon: const Icon(Icons.more_vert, size: 14, color: AppTheme.fg2),
         itemBuilder: (_) => [
           PopupMenuItem(
             value: 'toggle',

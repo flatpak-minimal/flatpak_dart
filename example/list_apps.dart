@@ -4,7 +4,7 @@
 import 'package:flatpak_dart/flatpak_dart.dart';
 
 Future<void> main() async {
-  final client = FlatpakClient.system();
+  final client = FlatpakClient.user();
 
   final apps = await client.listApplications();
   print('${apps.length} applications installed:\n');

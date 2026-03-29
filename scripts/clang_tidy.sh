@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run clang-tidy-19 over all non-generated C++ sources.
+# Run clang-tidy-19 over all non-generated, non-vendored C++ sources.
 set -euo pipefail
 BUILD_DIR="${1:-build-tidy}"
 CPU_COUNT="$(nproc 2>/dev/null || echo 4)"
@@ -16,10 +16,13 @@ cmake --build "$BUILD_DIR" --parallel "$CPU_COUNT"
 
 echo ""
 echo "=== Running clang-tidy-19 ==="
-find native/src native/include -name "*.cpp" -o -name "*.h" \
+# Only check our own source files, excluding vendored Dart SDK and glaze headers.
+# --header-filter limits diagnostics to our own headers only.
+find native/src -name "*.cpp" \
     | grep -v dart_api_dl | grep -v generated \
     | xargs -P"$CPU_COUNT" clang-tidy-19 \
         -p "$BUILD_DIR" \
         --config-file=.clang-tidy \
+        --header-filter='native/include/(flatpak_|transaction_|installation_)' \
         --warnings-as-errors="*"
 echo "=== clang-tidy-19 clean ==="

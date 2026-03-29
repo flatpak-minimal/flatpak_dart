@@ -33,20 +33,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return const Scaffold(
       backgroundColor: AppTheme.bg0,
       body: Column(
         children: [
           // ── App bar ──────────────────────────────────────────────────
-          const _AppBar(),
+          _AppBar(),
 
-          const Divider(),
+          Divider(),
 
           // ── Main two-pane content ────────────────────────────────────
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: const [
+              children: [
                 // Left pane: remote list
                 RemotePanel(),
 
@@ -125,13 +125,13 @@ class _AppBar extends StatelessWidget {
 
 class _TrafficLight extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => const Row(
         children: [
-          _Dot(color: const Color(0xFFFF5F56)),
-          const SizedBox(width: 5),
-          _Dot(color: const Color(0xFFFFBD2E)),
-          const SizedBox(width: 5),
-          _Dot(color: const Color(0xFF27C93F)),
+          _Dot(color: Color(0xFFFF5F56)),
+          SizedBox(width: 5),
+          _Dot(color: Color(0xFFFFBD2E)),
+          SizedBox(width: 5),
+          _Dot(color: Color(0xFF27C93F)),
         ],
       );
 }
@@ -145,7 +145,7 @@ class _Dot extends StatelessWidget {
         width: 10, height: 10,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color.withOpacity(0.7),
+          color: color.withValues(alpha: 0.7),
         ),
       );
 }

@@ -3,6 +3,8 @@
 // Right-pane: streams FlatpakRef records from the selected remote.
 // Shows a live counter while streaming, filter input, and status bar.
 
+import 'dart:io';
+
 import 'package:flatpak_dart/flatpak_dart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +33,7 @@ class PackageListView extends StatelessWidget {
         // ── Toolbar ───────────────────────────────────────────────────
         _Toolbar(
           remoteName:  prov.selectedName!,
+          remoteUrl:   prov.selected?.url ?? '',
           totalLoaded: prov.totalLoaded,
           loadState:   prov.loadState,
         ),
@@ -59,10 +62,12 @@ class PackageListView extends StatelessWidget {
 
 class _Toolbar extends StatelessWidget {
   final String          remoteName;
+  final String          remoteUrl;
   final int             totalLoaded;
   final PackageLoadState loadState;
   const _Toolbar({
     required this.remoteName,
+    required this.remoteUrl,
     required this.totalLoaded,
     required this.loadState,
   });
@@ -79,7 +84,7 @@ class _Toolbar extends StatelessWidget {
 
           // Streaming indicator
           if (loadState == PackageLoadState.streaming) ...[
-            SizedBox.square(
+            const SizedBox.square(
               dimension: 12,
               child: CircularProgressIndicator(
                 strokeWidth: 1.5,
@@ -98,6 +103,29 @@ class _Toolbar extends StatelessWidget {
           ],
 
           const Spacer(),
+
+          // AppStream data
+          if (remoteUrl.isNotEmpty && !remoteUrl.startsWith('oci+'))
+            Tooltip(
+              message: 'Open AppStream data',
+              child: InkWell(
+                onTap: () {
+                  // The appstream data lives at <repo-url>/appstream/<arch>/appstream.xml.gz
+                  var base = remoteUrl;
+                  if (!base.endsWith('/')) base += '/';
+                  final url = '${base}appstream/x86_64/appstream.xml.gz';
+                  Process.run('xdg-open', [url]);
+                },
+                borderRadius: BorderRadius.circular(3),
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.open_in_new,
+                      size: 14, color: AppTheme.fg1),
+                ),
+              ),
+            ),
+
+          const SizedBox(width: 4),
 
           // Refresh
           Tooltip(
@@ -221,9 +249,14 @@ class _Body extends StatelessWidget {
 
     return Scrollbar(
       child: ListView.builder(
+        primary:     true,
         itemCount:   prov.packages.length,
         itemExtent:  44,
-        itemBuilder: (_, i) => _PackageRow(ref: prov.packages[i], index: i),
+        itemBuilder: (_, i) => _PackageRow(
+          ref: prov.packages[i],
+          index: i,
+          remoteName: prov.selectedName!,
+        ),
       ),
     );
   }
@@ -234,7 +267,12 @@ class _Body extends StatelessWidget {
 class _PackageRow extends StatefulWidget {
   final FlatpakRef ref;
   final int        index;
-  const _PackageRow({required this.ref, required this.index});
+  final String     remoteName;
+  const _PackageRow({
+    required this.ref,
+    required this.index,
+    required this.remoteName,
+  });
 
   @override
   State<_PackageRow> createState() => _PackageRowState();
@@ -251,13 +289,15 @@ class _PackageRowState extends State<_PackageRow> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit:  (_) => setState(() => _hovering = false),
-      child: AnimatedContainer(
+      child: GestureDetector(
+        onTap: () => _showPermissions(context, ref, widget.remoteName),
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 80),
         color: _hovering
             ? AppTheme.bg3
             : even
                 ? Colors.transparent
-                : AppTheme.bg1.withOpacity(0.4),
+                : AppTheme.bg1.withValues(alpha: 0.4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
         alignment: Alignment.centerLeft,
         child: Row(children: [
@@ -321,14 +361,28 @@ class _PackageRowState extends State<_PackageRow> {
                   );
                 },
                 borderRadius: BorderRadius.circular(2),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
                   child: Icon(Icons.copy, size: 11, color: AppTheme.fg2),
                 ),
               ),
             ),
           ),
         ]),
+      ),
+      ),
+    );
+  }
+
+  Future<void> _showPermissions(
+      BuildContext context, FlatpakRef ref, String remoteName) async {
+    final fullRef = '${ref.kind}/${ref.name}/${ref.arch}/${ref.branch}';
+    showDialog(
+      context: context,
+      builder: (_) => _PermissionsDialog(
+        appName: ref.name,
+        fullRef: fullRef,
+        remoteName: remoteName,
       ),
     );
   }
@@ -363,7 +417,7 @@ class _StatusBar extends StatelessWidget {
         const Spacer(),
         if (prov.loadState == PackageLoadState.streaming)
           Row(children: [
-            SizedBox.square(
+            const SizedBox.square(
               dimension: 8,
               child: CircularProgressIndicator(
                   strokeWidth: 1, color: AppTheme.teal),
@@ -404,10 +458,174 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 28, color: color.withOpacity(0.5)),
+          Icon(icon, size: 28, color: color.withValues(alpha: 0.5)),
           const SizedBox(height: 10),
           Text(message,
-              style: AppTheme.ui(size: 12, color: color.withOpacity(0.7))),
+              style: AppTheme.ui(size: 12, color: color.withValues(alpha: 0.7))),
         ]),
       );
+}
+
+// ── Permissions dialog ──────────────────────────────────────────────────────
+
+class _PermissionsDialog extends StatefulWidget {
+  final String appName;
+  final String fullRef;
+  final String remoteName;
+  const _PermissionsDialog({
+    required this.appName,
+    required this.fullRef,
+    required this.remoteName,
+  });
+
+  @override
+  State<_PermissionsDialog> createState() => _PermissionsDialogState();
+}
+
+class _PermissionsDialogState extends State<_PermissionsDialog> {
+  List<MetadataEntry>? _entries;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final tempClient = FlatpakClient.user();
+      final entries = await tempClient.fetchRemoteMetadata(
+          widget.remoteName, widget.fullRef);
+      tempClient.close();
+      if (mounted) {
+        setState(() => _entries = entries);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString());
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.bg1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: const BorderSide(color: AppTheme.border, width: 0.5),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 500),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(children: [
+                const Icon(Icons.security, color: AppTheme.teal, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.appName,
+                    style: AppTheme.ui(size: 14, weight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, size: 16, color: AppTheme.fg2),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ]),
+
+              const SizedBox(height: 6),
+              Text(widget.fullRef,
+                  style: AppTheme.mono(size: 10, color: AppTheme.fg2)),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+
+              // Content
+              if (_error != null)
+                Text('Error: $_error',
+                    style: AppTheme.ui(size: 12, color: AppTheme.amber))
+              else if (_entries == null)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: AppTheme.teal),
+                    ),
+                  ),
+                )
+              else if (_entries!.isEmpty)
+                Text('No permissions declared.',
+                    style: AppTheme.ui(size: 12, color: AppTheme.fg2))
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _entries!.length,
+                    itemBuilder: (_, i) {
+                      final e = _entries![i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 140,
+                              child: Text(
+                                '${e.section}\n${e.key}',
+                                style: AppTheme.mono(
+                                    size: 10, color: AppTheme.fg2),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: e.value
+                                    .split(';')
+                                    .where((s) => s.isNotEmpty)
+                                    .map((v) => Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.bg2,
+                                            borderRadius:
+                                                BorderRadius.circular(3),
+                                            border: Border.all(
+                                                color: AppTheme.border,
+                                                width: 0.5),
+                                          ),
+                                          child: Text(v,
+                                              style: AppTheme.mono(
+                                                  size: 10,
+                                                  color: AppTheme.teal)),
+                                        ))
+                                    .toList(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

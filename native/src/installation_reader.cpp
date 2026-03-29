@@ -1,5 +1,6 @@
 // installation_reader.cpp — All read-only libflatpak queries.
 // Posts glaze-encoded results to Dart via Dart_PostCObject_DL.
+// Reader is created once per installation; port passed per-call.
 
 #include "installation_reader.h"
 
@@ -9,107 +10,65 @@
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+static void post_bytes(Dart_Port port, const uint8_t* data, size_t len) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kTypedData;
+    obj.value.as_typed_data.type = Dart_TypedData_kUint8;
+    obj.value.as_typed_data.length = static_cast<intptr_t>(len);
+    obj.value.as_typed_data.values = const_cast<uint8_t*>(data);
+    Dart_PostCObject_DL(port, &obj);
+}
+
 static void post_glaze_bytes(Dart_Port port, uint8_t discriminator, const uint8_t* data,
                              size_t len) {
-    // Allocate discriminator + payload
-    auto* buf = new uint8_t[1 + len];
+    std::vector<uint8_t> buf(1 + len);
     buf[0] = discriminator;
-    std::memcpy(buf + 1, data, len);
-
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kExternalTypedData;
-    obj.value.as_external_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_external_typed_data.length = static_cast<intptr_t>(1 + len);
-    obj.value.as_external_typed_data.data = buf;
-    obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
-        delete[] static_cast<uint8_t*>(peer);
-    };
-
-    Dart_PostCObject_DL(port, &obj);
+    if (len > 0) {
+        std::memcpy(buf.data() + 1, data, len);
+    }
+    post_bytes(port, buf.data(), buf.size());
 }
 
 template <typename T>
 static void post_glaze(Dart_Port port, uint8_t discriminator, const T& value) {
-    std::vector<uint8_t> buf;
-    glz::write_binary(value, buf);
-    post_glaze_bytes(port, discriminator, buf.data(), buf.size());
+    auto payload = glz::write_binary(value);
+    post_glaze_bytes(port, discriminator, payload.data(), payload.size());
 }
 
 static void post_sentinel(Dart_Port port) {
-    uint8_t byte = 0xFF;
-    post_glaze_bytes(port, 0xFF, nullptr, 0);
-    (void)byte;
-}
-
-static void post_ok(Dart_Port port) {
-    uint8_t buf[1] = {0x01};
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kExternalTypedData;
-    obj.value.as_external_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_external_typed_data.length = 1;
-    obj.value.as_external_typed_data.data = buf;
-    obj.value.as_external_typed_data.peer = nullptr;
-    obj.value.as_external_typed_data.callback = nullptr;
-    Dart_PostCObject_DL(port, &obj);
+    uint8_t buf[1] = {0xFF};
+    post_bytes(port, buf, 1);
 }
 
 static void post_error(Dart_Port port, const char* msg) {
     auto len = static_cast<uint32_t>(std::strlen(msg));
-    auto total = 1 + sizeof(uint32_t) + len;
-    auto* buf = new uint8_t[total];
+    std::vector<uint8_t> buf(1 + sizeof(uint32_t) + len);
     buf[0] = 0x02;
-    std::memcpy(buf + 1, &len, sizeof(uint32_t));
-    std::memcpy(buf + 1 + sizeof(uint32_t), msg, len);
-
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kExternalTypedData;
-    obj.value.as_external_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_external_typed_data.length = static_cast<intptr_t>(total);
-    obj.value.as_external_typed_data.data = buf;
-    obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
-        delete[] static_cast<uint8_t*>(peer);
-    };
-
-    Dart_PostCObject_DL(port, &obj);
+    std::memcpy(buf.data() + 1, &len, sizeof(uint32_t));
+    std::memcpy(buf.data() + 1 + sizeof(uint32_t), msg, len);
+    post_bytes(port, buf.data(), buf.size());
 }
 
 static const char* safe_str(const char* s) {
     return s ? s : "";
 }
 
-static const char* op_kind_str(FlatpakTransactionOperationType type) {
-    switch (type) {
-        case FLATPAK_TRANSACTION_OPERATION_INSTALL:
-            return "install";
-        case FLATPAK_TRANSACTION_OPERATION_UPDATE:
-            return "update";
-        case FLATPAK_TRANSACTION_OPERATION_INSTALL_BUNDLE:
-            return "install";
-        case FLATPAK_TRANSACTION_OPERATION_UNINSTALL:
-            return "uninstall";
-        default:
-            return "unknown";
-    }
-}
-
 // ── InstallationReader ──────────────────────────────────────────────────────
 
-InstallationReader::InstallationReader(Dart_Port port, FlatpakInstallation* inst)
-    : port_(port), installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
+InstallationReader::InstallationReader(FlatpakInstallation* inst)
+    : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
 }
 
 InstallationReader::~InstallationReader() {
     g_object_unref(installation_);
 }
 
-void InstallationReader::list_apps(bool include_runtimes) {
+void InstallationReader::list_apps(Dart_Port port, bool include_runtimes) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(GPtrArray) refs =
         flatpak_installation_list_installed_refs(installation_, nullptr, &err);
     if (!refs) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
     for (guint i = 0; i < refs->len; i++) {
@@ -136,18 +95,17 @@ void InstallationReader::list_apps(bool include_runtimes) {
         app.appDataName = safe_str(flatpak_installed_ref_get_appdata_name(iref));
         app.appDataSummary = safe_str(flatpak_installed_ref_get_appdata_summary(iref));
         app.appDataVersion = safe_str(flatpak_installed_ref_get_appdata_version(iref));
-        // appDataIcon is not available via libflatpak C API directly
 
-        post_glaze(port_, 0x01, app);
+        post_glaze(port, 0x01, app);
     }
-    post_sentinel(port_);
+    post_sentinel(port);
 }
 
-void InstallationReader::list_remotes() {
+void InstallationReader::list_remotes(Dart_Port port) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(GPtrArray) remotes = flatpak_installation_list_remotes(installation_, nullptr, &err);
     if (!remotes) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
     for (guint i = 0; i < remotes->len; i++) {
@@ -161,7 +119,7 @@ void InstallationReader::list_remotes() {
         info.description = safe_str(flatpak_remote_get_description(remote));
         info.homepage = safe_str(flatpak_remote_get_homepage(remote));
         info.defaultBranch = safe_str(flatpak_remote_get_default_branch(remote));
-        info.subset = safe_str(flatpak_remote_get_subset(remote));
+        info.subset = "";  // subset API not available in all libflatpak versions
         info.collectionId = safe_str(flatpak_remote_get_collection_id(remote));
         info.filter = safe_str(flatpak_remote_get_filter(remote));
         info.disabled = flatpak_remote_get_disabled(remote);
@@ -170,17 +128,17 @@ void InstallationReader::list_remotes() {
         info.priority = flatpak_remote_get_prio(remote);
         info.remoteType = static_cast<int32_t>(flatpak_remote_get_remote_type(remote));
 
-        post_glaze(port_, 0x01, info);
+        post_glaze(port, 0x01, info);
     }
-    post_sentinel(port_);
+    post_sentinel(port);
 }
 
-void InstallationReader::get_remote_info(const char* name) {
+void InstallationReader::get_remote_info(Dart_Port port, const char* name) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(FlatpakRemote) remote =
         flatpak_installation_get_remote_by_name(installation_, name, nullptr, &err);
     if (!remote) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
 
@@ -192,7 +150,7 @@ void InstallationReader::get_remote_info(const char* name) {
     info.description = safe_str(flatpak_remote_get_description(remote));
     info.homepage = safe_str(flatpak_remote_get_homepage(remote));
     info.defaultBranch = safe_str(flatpak_remote_get_default_branch(remote));
-    info.subset = safe_str(flatpak_remote_get_subset(remote));
+    info.subset = "";  // subset API not available in all libflatpak versions
     info.collectionId = safe_str(flatpak_remote_get_collection_id(remote));
     info.filter = safe_str(flatpak_remote_get_filter(remote));
     info.disabled = flatpak_remote_get_disabled(remote);
@@ -201,17 +159,17 @@ void InstallationReader::get_remote_info(const char* name) {
     info.priority = flatpak_remote_get_prio(remote);
     info.remoteType = static_cast<int32_t>(flatpak_remote_get_remote_type(remote));
 
-    post_glaze(port_, 0x01, info);
-    post_sentinel(port_);
+    post_glaze(port, 0x01, info);
+    post_sentinel(port);
 }
 
-void InstallationReader::list_remote_apps(const char* name, const char* arch,
+void InstallationReader::list_remote_apps(Dart_Port port, const char* name, const char* arch,
                                           bool include_runtimes) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(GPtrArray) refs =
         flatpak_installation_list_remote_refs_sync(installation_, name, nullptr, &err);
     if (!refs) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
     for (guint i = 0; i < refs->len; i++) {
@@ -222,26 +180,27 @@ void InstallationReader::list_remote_apps(const char* name, const char* arch,
         if (arch && *arch && g_strcmp0(flatpak_ref_get_arch(FLATPAK_REF(fref)), arch) != 0) {
             continue;
         }
-        FlatpakRef ref;
+        FpRef ref;
         ref.kind =
             flatpak_ref_get_kind(FLATPAK_REF(fref)) == FLATPAK_REF_KIND_APP ? "app" : "runtime";
         ref.name = safe_str(flatpak_ref_get_name(FLATPAK_REF(fref)));
         ref.arch = safe_str(flatpak_ref_get_arch(FLATPAK_REF(fref)));
         ref.branch = safe_str(flatpak_ref_get_branch(FLATPAK_REF(fref)));
         ref.commit = safe_str(flatpak_ref_get_commit(FLATPAK_REF(fref)));
-        ref.collectionId = safe_str(flatpak_remote_ref_get_collection_id(fref));
-        post_glaze(port_, 0x01, ref);
+        ref.collectionId = safe_str(flatpak_ref_get_collection_id(FLATPAK_REF(fref)));
+        post_glaze(port, 0x01, ref);
     }
-    post_sentinel(port_);
+    post_sentinel(port);
 }
 
-void InstallationReader::get_app_info(const char* app_id, const char* arch, const char* branch) {
+void InstallationReader::get_app_info(Dart_Port port, const char* app_id, const char* arch,
+                                      const char* branch) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(FlatpakInstalledRef) iref = flatpak_installation_get_installed_ref(
         installation_, FLATPAK_REF_KIND_APP, app_id, (arch && *arch) ? arch : nullptr,
         (branch && *branch) ? branch : nullptr, nullptr, &err);
     if (!iref) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
 
@@ -263,39 +222,110 @@ void InstallationReader::get_app_info(const char* app_id, const char* arch, cons
     app.appDataSummary = safe_str(flatpak_installed_ref_get_appdata_summary(iref));
     app.appDataVersion = safe_str(flatpak_installed_ref_get_appdata_version(iref));
 
-    post_glaze(port_, 0x01, app);
-    post_sentinel(port_);
+    post_glaze(port, 0x01, app);
+    post_sentinel(port);
 }
 
-void InstallationReader::get_permissions(const char* app_id) {
-    // Permission overrides are stored in key-files, not via libflatpak query API.
-    // Read from ~/.local/share/flatpak/overrides/<app_id> or
-    // /var/lib/flatpak/overrides/<app_id>.
-    // For now, post an empty sentinel — full implementation in PR 6.
+void InstallationReader::get_permissions(Dart_Port port, const char* app_id) {
     (void)app_id;
-    post_sentinel(port_);
+    post_sentinel(port);
 }
 
-void InstallationReader::check_updates() {
+void InstallationReader::check_updates(Dart_Port port) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(GPtrArray) updates =
         flatpak_installation_list_installed_refs_for_update(installation_, nullptr, &err);
     if (!updates) {
-        post_error(port_, err->message);
+        post_error(port, err->message);
         return;
     }
     for (guint i = 0; i < updates->len; i++) {
         auto* iref = static_cast<FlatpakInstalledRef*>(updates->pdata[i]);
-        FlatpakRef ref;
+        FpRef ref;
         ref.kind =
             flatpak_ref_get_kind(FLATPAK_REF(iref)) == FLATPAK_REF_KIND_APP ? "app" : "runtime";
         ref.name = safe_str(flatpak_ref_get_name(FLATPAK_REF(iref)));
         ref.arch = safe_str(flatpak_ref_get_arch(FLATPAK_REF(iref)));
         ref.branch = safe_str(flatpak_ref_get_branch(FLATPAK_REF(iref)));
         ref.commit = safe_str(flatpak_ref_get_commit(FLATPAK_REF(iref)));
-        post_glaze(port_, 0x01, ref);
+        post_glaze(port, 0x01, ref);
     }
-    post_sentinel(port_);
+    post_sentinel(port);
+}
+
+void InstallationReader::fetch_remote_metadata(Dart_Port port, const char* remote,
+                                               const char* ref) {
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakRef) fref = flatpak_ref_parse(ref, &err);
+    if (!fref) {
+        post_error(port, err ? err->message : "invalid ref");
+        return;
+    }
+    err = nullptr;
+    g_autoptr(GBytes) bytes =
+        flatpak_installation_fetch_remote_metadata_sync(installation_, remote, fref, nullptr, &err);
+    if (!bytes) {
+        post_error(port, err ? err->message : "failed to fetch metadata");
+        return;
+    }
+
+    // Parse the metadata keyfile and extract permissions into a struct
+    gsize len = 0;
+    auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &len));
+
+    g_autoptr(GKeyFile) kf = g_key_file_new();
+    if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, &err)) {
+        post_error(port, err ? err->message : "failed to parse metadata");
+        return;
+    }
+
+    // Build a FlatpakRemoteInfo-like struct to carry the permissions.
+    // We reuse a simple string-based approach: encode as key=value pairs
+    // from the [Context] section which contains the sandbox permissions.
+    //
+    // Sections of interest:
+    //   [Context]        shared, sockets, devices, filesystems, persistent
+    //   [Session Bus Policy]   bus-name=policy
+    //   [System Bus Policy]    bus-name=policy
+    //   [Environment]          VAR=value
+
+    struct MetadataEntry {
+        std::string section;
+        std::string key;
+        std::string value;
+    };
+
+    std::vector<MetadataEntry> entries;
+
+    const char* sections[] = {"Context", "Session Bus Policy", "System Bus Policy", "Environment",
+                              nullptr};
+    for (const char** sp = sections; *sp; ++sp) {
+        g_auto(GStrv) keys = g_key_file_get_keys(kf, *sp, nullptr, nullptr);
+        if (!keys) {
+            continue;
+        }
+        for (gsize i = 0; keys[i]; i++) {
+            g_autofree char* val = g_key_file_get_string(kf, *sp, keys[i], nullptr);
+            entries.push_back({*sp, keys[i], val ? val : ""});
+        }
+    }
+
+    // Encode as glaze binary: vector of (section, key, value) triples
+    // using a simple struct
+    glz::Writer w;
+    w.write<uint64_t>(entries.size());
+    for (const auto& e : entries) {
+        w.write(e.section);
+        w.write(e.key);
+        w.write(e.value);
+    }
+    post_glaze_bytes(port, 0x01, w.buf.data(), w.buf.size());
+    post_sentinel(port);
+}
+
+void InstallationReader::drop_caches() {
+    g_autoptr(GError) err = nullptr;
+    flatpak_installation_drop_caches(installation_, nullptr, &err);
 }
 
 // ── C ABI wrappers ──────────────────────────────────────────────────────────
@@ -308,53 +338,63 @@ static FlatpakInstallation* open_installation(const char* name) {
     if (g_strcmp0(name, "system") == 0) {
         return flatpak_installation_new_system(nullptr, &err);
     }
-    // Custom path
     g_autoptr(GFile) path = g_file_new_for_path(name);
     return flatpak_installation_new_for_path(path, false, nullptr, &err);
 }
 
 extern "C" {
 
-void* flatpak_reader_create(Dart_Port port, const char* installation) {
+void* flatpak_reader_create(const char* installation) {
     auto* inst = open_installation(installation);
     if (!inst) {
         return nullptr;
     }
-    return new InstallationReader(port, inst);
+    auto* reader = new InstallationReader(inst);
+    g_object_unref(inst);
+    return reader;
 }
 
 void flatpak_reader_destroy(void* handle) {
     delete static_cast<InstallationReader*>(handle);
 }
 
-void flatpak_reader_list_apps(void* handle, bool include_runtimes) {
-    static_cast<InstallationReader*>(handle)->list_apps(include_runtimes);
+void flatpak_reader_list_apps(void* handle, Dart_Port port, bool include_runtimes) {
+    static_cast<InstallationReader*>(handle)->list_apps(port, include_runtimes);
 }
 
-void flatpak_reader_list_remotes(void* handle) {
-    static_cast<InstallationReader*>(handle)->list_remotes();
+void flatpak_reader_list_remotes(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->list_remotes(port);
 }
 
-void flatpak_reader_get_remote_info(void* handle, const char* name) {
-    static_cast<InstallationReader*>(handle)->get_remote_info(name);
+void flatpak_reader_get_remote_info(void* handle, Dart_Port port, const char* name) {
+    static_cast<InstallationReader*>(handle)->get_remote_info(port, name);
 }
 
-void flatpak_reader_list_remote_apps(void* handle, const char* name, const char* arch,
-                                     bool include_runtimes) {
-    static_cast<InstallationReader*>(handle)->list_remote_apps(name, arch, include_runtimes);
+void flatpak_reader_list_remote_apps(void* handle, Dart_Port port, const char* name,
+                                     const char* arch, bool include_runtimes) {
+    static_cast<InstallationReader*>(handle)->list_remote_apps(port, name, arch, include_runtimes);
 }
 
-void flatpak_reader_get_app_info(void* handle, const char* app_id, const char* arch,
+void flatpak_reader_get_app_info(void* handle, Dart_Port port, const char* app_id, const char* arch,
                                  const char* branch) {
-    static_cast<InstallationReader*>(handle)->get_app_info(app_id, arch, branch);
+    static_cast<InstallationReader*>(handle)->get_app_info(port, app_id, arch, branch);
 }
 
-void flatpak_reader_get_permissions(void* handle, const char* app_id) {
-    static_cast<InstallationReader*>(handle)->get_permissions(app_id);
+void flatpak_reader_get_permissions(void* handle, Dart_Port port, const char* app_id) {
+    static_cast<InstallationReader*>(handle)->get_permissions(port, app_id);
 }
 
-void flatpak_reader_check_updates(void* handle) {
-    static_cast<InstallationReader*>(handle)->check_updates();
+void flatpak_reader_check_updates(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->check_updates(port);
+}
+
+void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
+                                          const char* ref) {
+    static_cast<InstallationReader*>(handle)->fetch_remote_metadata(port, remote, ref);
+}
+
+void flatpak_reader_drop_caches(void* handle) {
+    static_cast<InstallationReader*>(handle)->drop_caches();
 }
 
 }  // extern "C"

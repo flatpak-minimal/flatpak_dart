@@ -21,6 +21,7 @@ include(cmake/Coverage.cmake)
 # ── dart_api_dl — compile as plain C ─────────────────────────────────────
 add_library(dart_api_dl OBJECT src/dart_api_dl.c)
 target_include_directories(dart_api_dl PUBLIC include)
+set_target_properties(dart_api_dl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ── Main shared library ───────────────────────────────────────────────────
 add_library(flatpak_nc SHARED
@@ -40,7 +41,6 @@ target_link_libraries(flatpak_nc
 )
 
 set_target_properties(flatpak_nc PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME "flatpak_nc"
 )

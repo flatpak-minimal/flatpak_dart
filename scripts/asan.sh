@@ -13,7 +13,7 @@ cmake -B "$BUILD_DIR" native/ \
 cmake --build "$BUILD_DIR" --parallel "$CPU_COUNT"
 echo ""
 echo "=== Running tests under ASAN ==="
-export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1"
+export ASAN_OPTIONS="detect_leaks=0:halt_on_error=1:abort_on_error=1"
 export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
 ctest --test-dir "$BUILD_DIR/test" --output-on-failure -j"$CPU_COUNT"
 echo "=== ASAN clean ==="

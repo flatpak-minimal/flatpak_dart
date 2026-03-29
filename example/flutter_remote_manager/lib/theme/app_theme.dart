@@ -67,7 +67,7 @@ abstract final class AppTheme {
           outline:        border,
           error:          Color(0xFFFF5252),
         ),
-        cardTheme: const CardTheme(
+        cardTheme: const CardThemeData(
           color:    bg1,
           shape:    RoundedRectangleBorder(
             borderRadius: BorderRadius.all(Radius.circular(6)),
@@ -108,7 +108,7 @@ abstract final class AppTheme {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor:  teal,
-            foregroundColor:  Color(0xFF001A14),
+            foregroundColor:  const Color(0xFF001A14),
             textStyle:        GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600),
             padding:          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             shape:            RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
@@ -126,7 +126,7 @@ abstract final class AppTheme {
         ),
         chipTheme: ChipThemeData(
           backgroundColor:    bg2,
-          selectedColor:      teal.withOpacity(0.15),
+          selectedColor:      teal.withValues(alpha: 0.15),
           labelStyle:         GoogleFonts.dmSans(fontSize: 11, color: fg1),
           padding:            const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           shape:              RoundedRectangleBorder(

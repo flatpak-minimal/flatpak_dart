@@ -16,8 +16,8 @@ void main() {
         status: 'Downloading',
       );
       expect(p.sizeKnown, isFalse);
-      expect(p.progressLabel, contains('downloaded'));
-      expect(p.progressLabel, isNot(contains('%')));
+      expect(p.progressLabel, contains('%'));
+      expect(p.progressLabel, contains('transferred'));
     });
 
     test('progressLabel shows percent when sizeKnown is true', () {

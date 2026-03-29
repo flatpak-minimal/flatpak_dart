@@ -31,3 +31,6 @@ lcov.info
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude
+.claude/

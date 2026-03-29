@@ -14,10 +14,10 @@ TEST(RemoteConfig, RoundtripBasic) {
     orig.priority = 1;
 
     std::vector<uint8_t> buf;
-    glz::write_binary(orig, buf);
+    buf = glz::write_binary(orig);
 
     RemoteConfig decoded;
-    glz::read_binary(decoded, buf);
+    glz::read_binary(buf, decoded);
 
     EXPECT_EQ(decoded.url, orig.url);
     EXPECT_EQ(decoded.title, orig.title);
@@ -30,18 +30,18 @@ TEST(RemoteConfig, SubsetEncodes) {
     RemoteConfig cfg;
     cfg.subset = "verified_floss";
     std::vector<uint8_t> buf;
-    glz::write_binary(cfg, buf);
+    buf = glz::write_binary(cfg);
     RemoteConfig out;
-    glz::read_binary(out, buf);
+    glz::read_binary(buf, out);
     EXPECT_EQ(out.subset, "verified_floss");
 }
 
 TEST(RemoteConfig, SentinelValuesPreserved) {
     RemoteConfig cfg;  // all sentinels
     std::vector<uint8_t> buf;
-    glz::write_binary(cfg, buf);
+    buf = glz::write_binary(cfg);
     RemoteConfig out;
-    glz::read_binary(out, buf);
+    glz::read_binary(buf, out);
     EXPECT_EQ(out.priority, -1);
     EXPECT_EQ(out.gpgVerify, -1);
     EXPECT_EQ(out.disabled, -1);
@@ -52,9 +52,9 @@ TEST(RemoteConfig, GpgKeyDataBytes) {
     RemoteConfig cfg;
     cfg.gpgKeyData = {0xDE, 0xAD, 0xBE, 0xEF};
     std::vector<uint8_t> buf;
-    glz::write_binary(cfg, buf);
+    buf = glz::write_binary(cfg);
     RemoteConfig out;
-    glz::read_binary(out, buf);
+    glz::read_binary(buf, out);
     EXPECT_EQ(out.gpgKeyData, cfg.gpgKeyData);
 }
 
@@ -68,9 +68,9 @@ TEST(FlatpakRemoteInfo, SubsetAndCollectionId) {
     info.gpgVerify = true;
 
     std::vector<uint8_t> buf;
-    glz::write_binary(info, buf);
+    buf = glz::write_binary(info);
     FlatpakRemoteInfo out;
-    glz::read_binary(out, buf);
+    glz::read_binary(buf, out);
 
     EXPECT_EQ(out.subset, "floss");
     EXPECT_EQ(out.remoteType, 0);
@@ -83,9 +83,9 @@ TEST(FlatpakRemoteInfo, OciRemote) {
     info.url = "oci+https://registry.fedoraproject.org";
     info.remoteType = 2;  // static
     std::vector<uint8_t> buf;
-    glz::write_binary(info, buf);
+    buf = glz::write_binary(info);
     FlatpakRemoteInfo out;
-    glz::read_binary(out, buf);
+    glz::read_binary(buf, out);
     EXPECT_EQ(out.url, "oci+https://registry.fedoraproject.org");
     EXPECT_EQ(out.remoteType, 2);
 }

@@ -2,11 +2,6 @@
 //
 // Central state for the remote manager app.
 // All I/O goes through FlatpakClient from flatpak_dart.
-//
-// Lifecycle:
-//   1. init()  — opens FlatpakClient + loads remote list
-//   2. selectRemote(name) — changes active remote, cancels prev stream, starts new
-//   3. add / remove / repopulate — mutation, then reload
 
 import 'dart:async';
 
@@ -20,13 +15,13 @@ class RemoteProvider extends ChangeNotifier {
   FlatpakClient? _client;
 
   // ── Remote list state ─────────────────────────────────────────────────
-  List<FlatpakRemote> _remotes   = [];
-  bool                _loadingRemotes = false;
-  String?             _remoteError;
+  List<FlatpakRemote> _remotes = [];
+  bool _loadingRemotes = false;
+  String? _remoteError;
 
-  List<FlatpakRemote> get remotes       => List.unmodifiable(_remotes);
-  bool                get loadingRemotes => _loadingRemotes;
-  String?             get remoteError   => _remoteError;
+  List<FlatpakRemote> get remotes => List.unmodifiable(_remotes);
+  bool get loadingRemotes => _loadingRemotes;
+  String? get remoteError => _remoteError;
 
   // ── Selected remote ────────────────────────────────────────────────────
   String? _selectedName;
@@ -38,16 +33,16 @@ class RemoteProvider extends ChangeNotifier {
           : _remotes.where((r) => r.name == _selectedName).firstOrNull;
 
   // ── Package list state ────────────────────────────────────────────────
-  final List<FlatpakRef> _packages    = [];
-  PackageLoadState       _loadState   = PackageLoadState.idle;
-  String?                _packageError;
+  final List<FlatpakRef> _packages = [];
+  PackageLoadState _loadState = PackageLoadState.idle;
+  String? _packageError;
   StreamSubscription<FlatpakRef>? _packageSub;
-  String                 _packageFilter = '';
+  String _packageFilter = '';
 
-  List<FlatpakRef> get packages     => _applyFilter(_packages);
-  PackageLoadState get loadState    => _loadState;
-  String?          get packageError => _packageError;
-  int              get totalLoaded  => _packages.length;
+  List<FlatpakRef> get packages => _applyFilter(_packages);
+  PackageLoadState get loadState => _loadState;
+  String? get packageError => _packageError;
+  int get totalLoaded => _packages.length;
 
   String get packageFilter => _packageFilter;
   set packageFilter(String v) {
@@ -58,24 +53,25 @@ class RemoteProvider extends ChangeNotifier {
   // ── Initialisation ────────────────────────────────────────────────────
 
   Future<void> init() async {
-    // Use user installation so no polkit prompt is needed.
-    _client = await FlatpakClient.user();
-    await _loadRemotes();
+    _client = FlatpakClient.user();
+    await _refreshRemoteList();
+    // Auto-select first remote (prefer enabled).
+    final first = _remotes.where((r) => !r.disabled).firstOrNull ??
+        _remotes.firstOrNull;
+    if (first != null) {
+      await selectRemote(first.name);
+    }
   }
 
-  // ── Remote operations ─────────────────────────────────────────────────
+  // ── Internal: just reload the remote list, no side effects ────────────
 
-  Future<void> _loadRemotes() async {
+  Future<void> _refreshRemoteList() async {
     _loadingRemotes = true;
-    _remoteError    = null;
+    _remoteError = null;
     notifyListeners();
     try {
+      _client!.dropCaches();
       _remotes = await _client!.remotes.list();
-      // Auto-select first non-disabled remote on first load.
-      if (_selectedName == null) {
-        final first = _remotes.where((r) => !r.disabled).firstOrNull;
-        if (first != null) await selectRemote(first.name, loadPackages: true);
-      }
     } catch (e) {
       _remoteError = e.toString();
     } finally {
@@ -84,26 +80,37 @@ class RemoteProvider extends ChangeNotifier {
     }
   }
 
+  // ── Remote operations ─────────────────────────────────────────────────
+
   /// Change the active remote and begin streaming its packages.
   Future<void> selectRemote(String name, {bool loadPackages = true}) async {
     _selectedName = name;
-    notifyListeners();
-    if (loadPackages) await _loadPackages();
+    await _cancelPackageStream();
+    _packages.clear();
+    _packageFilter = '';
+
+    final r = _remotes.where((r) => r.name == name).firstOrNull;
+    if (!loadPackages || r == null || r.disabled) {
+      _loadState = PackageLoadState.idle;
+      notifyListeners();
+      return;
+    }
+
+    await _loadPackages();
   }
 
-  /// Add a remote. Accepts any [FlatpakRemoteConfig], including [KnownRemotes].
+  /// Add a remote.
   Future<void> addRemote(String name, FlatpakRemoteConfig config) async {
     await _client!.remotes.add(name, config);
-    await _loadRemotes();
-    // Auto-select the newly added remote.
-    await selectRemote(name, loadPackages: true);
+    await _refreshRemoteList();
+    await selectRemote(name);
   }
 
   /// Add a remote from a downloaded .flatpakrepo file path.
   Future<void> addRemoteFromFile(String name, String filePath) async {
     await _client!.remotes.addFromFile(name, filePath);
-    await _loadRemotes();
-    await selectRemote(name, loadPackages: true);
+    await _refreshRemoteList();
+    await selectRemote(name);
   }
 
   /// Remove a remote by name.
@@ -111,89 +118,114 @@ class RemoteProvider extends ChangeNotifier {
     await _client!.remotes.remove(name, force: force);
     if (_selectedName == name) {
       _selectedName = null;
-      _cancelPackageStream();
+      await _cancelPackageStream();
+      _packages.clear();
+      _loadState = PackageLoadState.idle;
     }
-    await _loadRemotes();
+    await _refreshRemoteList();
+    // Auto-select if current selection is gone
+    if (_selectedName == null ||
+        !_remotes.any((r) => r.name == _selectedName)) {
+      _selectedName =
+          _remotes.where((r) => !r.disabled).firstOrNull?.name;
+      notifyListeners();
+      if (_selectedName != null) await _loadPackages();
+    }
   }
 
   /// Enable or disable a remote without removing it.
   Future<void> toggleDisabled(String name) async {
     final r = _remotes.where((r) => r.name == name).firstOrNull;
     if (r == null) return;
-    r.disabled
-        ? await _client!.remotes.enable(name)
-        : await _client!.remotes.disable(name);
-    await _loadRemotes();
+
+    if (r.disabled) {
+      await _client!.remotes.enable(name);
+    } else {
+      await _client!.remotes.disable(name);
+    }
+
+    // Re-read remote list to get confirmed state from libflatpak
+    await _refreshRemoteList();
+
+    // Verify the state actually changed
+    final updated = _remotes.where((r) => r.name == name).firstOrNull;
+    if (updated == null) return;
+
+    // Re-select to update package list based on confirmed state
+    await selectRemote(name);
   }
 
-  /// Remove all non-static remotes and re-add the four Flathub variants
-  /// plus Fedora.  Intended as the "repopulate" / factory-reset action.
+  /// Remove all non-static remotes and re-add the four Flathub variants.
   Future<void> repopulateWithFlathub() async {
-    // Remove all user-writable remotes.
     final toRemove = _remotes.where((r) => !r.isStatic).toList();
     for (final r in toRemove) {
-      await _client!.remotes.remove(r.name, force: true);
+      try {
+        await _client!.remotes.remove(r.name, force: true);
+      } catch (_) {}
     }
-    // Add the standard set.
-    await _client!.remotes.add('flathub',              KnownRemotes.flathub,
+    await _client!.remotes
+        .add('flathub', KnownRemotes.flathub, ifNotExists: true);
+    await _client!.remotes.add(
+        'flathub-verified', KnownRemotes.flathubVerified,
         ifNotExists: true);
-    await _client!.remotes.add('flathub-verified',     KnownRemotes.flathubVerified,
+    await _client!.remotes
+        .add('flathub-floss', KnownRemotes.flathubFloss, ifNotExists: true);
+    await _client!.remotes.add(
+        'flathub-verified_floss', KnownRemotes.flathubVerifiedFloss,
         ifNotExists: true);
-    await _client!.remotes.add('flathub-floss',        KnownRemotes.flathubFloss,
-        ifNotExists: true);
-    await _client!.remotes.add('flathub-verified_floss',
-        KnownRemotes.flathubVerifiedFloss, ifNotExists: true);
 
-    await _loadRemotes();
-    await selectRemote('flathub', loadPackages: true);
+    _selectedName = null;
+    await _refreshRemoteList();
+    await selectRemote('flathub');
   }
 
   // ── Package loading ───────────────────────────────────────────────────
 
   Future<void> _loadPackages() async {
-    _cancelPackageStream();
+    await _cancelPackageStream();
     _packages.clear();
     _packageError = null;
-    _loadState    = PackageLoadState.streaming;
+    _loadState = PackageLoadState.streaming;
+    _packageFilter = '';
     notifyListeners();
 
     final remote = _selectedName;
-    if (remote == null) {
+    if (remote == null || _client == null) {
       _loadState = PackageLoadState.idle;
       notifyListeners();
       return;
     }
 
     try {
-      _packageSub = _client!.remotes
-          .listApps(remote, includeRuntimes: false)
-          .listen(
+      _packageSub =
+          _client!.remotes.listApps(remote, includeRuntimes: false).listen(
         (ref) {
-          if (_selectedName != remote) return; // stale stream
+          if (_selectedName != remote) return;
           _packages.add(ref);
-          // Batch notify every 50 refs to avoid flooding the UI.
           if (_packages.length % 50 == 0) notifyListeners();
         },
         onDone: () {
+          if (_selectedName != remote) return;
           _loadState = PackageLoadState.done;
           notifyListeners();
         },
         onError: (Object e) {
+          if (_selectedName != remote) return;
           _packageError = e.toString();
-          _loadState    = PackageLoadState.error;
+          _loadState = PackageLoadState.error;
           notifyListeners();
         },
         cancelOnError: true,
       );
     } catch (e) {
       _packageError = e.toString();
-      _loadState    = PackageLoadState.error;
+      _loadState = PackageLoadState.error;
       notifyListeners();
     }
   }
 
-  void _cancelPackageStream() {
-    _packageSub?.cancel();
+  Future<void> _cancelPackageStream() async {
+    await _packageSub?.cancel();
     _packageSub = null;
   }
 
@@ -206,7 +238,7 @@ class RemoteProvider extends ChangeNotifier {
   // ── Refresh ───────────────────────────────────────────────────────────
 
   Future<void> refresh() async {
-    await _loadRemotes();
+    await _refreshRemoteList();
     if (_selectedName != null) await _loadPackages();
   }
 

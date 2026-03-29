@@ -73,10 +73,20 @@ class TransactionProgress {
   /// True once libflatpak has resolved the download size.
   bool get sizeKnown => bytesTotal > 0;
 
-  /// Display-ready progress string that handles the unknown-size phase.
-  String get progressLabel => sizeKnown
-      ? '$progressPercent%  ${_fmt(bytesTransferred)} / ${_fmt(bytesTotal)}'
-      : '${_fmt(bytesTransferred)} downloaded';
+  /// Display-ready progress string.
+  ///
+  /// Always includes percentage (from libflatpak's `get_progress`).
+  /// If [bytesTotal] is known, shows transfer ratio; otherwise just bytes.
+  String get progressLabel {
+    final pct = '$progressPercent%';
+    if (sizeKnown) {
+      return '$pct  ${_fmt(bytesTransferred)} / ${_fmt(bytesTotal)}';
+    }
+    if (bytesTransferred > 0) {
+      return '$pct  ${_fmt(bytesTransferred)} transferred';
+    }
+    return '$pct';
+  }
 
   @override
   String toString() =>
@@ -180,7 +190,8 @@ class TransactionBuilder {
   final List<void Function(Pointer<Void> txHandle)> _ops = [];
   final TransactionBridge _bridge;
 
-  TransactionBuilder._(this._bridge);
+  /// Internal constructor — use [FlatpakClient.transaction] instead.
+  TransactionBuilder.internal(this._bridge);
 
   TransactionBuilder addInstall(String remote, String ref) {
     _ops.add((h) => FlatpakBindings.txAddInstall(h, remote, ref));

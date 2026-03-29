@@ -23,18 +23,24 @@ extern "C" {
 void flatpak_bridge_init(void* dart_api_dl_data);
 
 // ── Installation reader (libflatpak — read-only) ──────────────────────────
-void* flatpak_reader_create(Dart_Port port, const char* installation);
+// Created once per installation; port passed per-call so the reader is reusable.
+void* flatpak_reader_create(const char* installation);
 void flatpak_reader_destroy(void* handle);
-void flatpak_reader_list_apps(void* handle, bool include_runtimes);
-void flatpak_reader_list_remotes(void* handle);
-void flatpak_reader_get_remote_info(void* handle, const char* name);
-// flatpak remote-ls equivalent: posts FlatpakRef records, then 0xFF sentinel
-void flatpak_reader_list_remote_apps(void* handle, const char* name, const char* arch,
-                                     bool include_runtimes);
-void flatpak_reader_get_app_info(void* handle, const char* app_id, const char* arch,
+void flatpak_reader_list_apps(void* handle, Dart_Port port, bool include_runtimes);
+void flatpak_reader_list_remotes(void* handle, Dart_Port port);
+void flatpak_reader_get_remote_info(void* handle, Dart_Port port, const char* name);
+void flatpak_reader_list_remote_apps(void* handle, Dart_Port port, const char* name,
+                                     const char* arch, bool include_runtimes);
+void flatpak_reader_get_app_info(void* handle, Dart_Port port, const char* app_id, const char* arch,
                                  const char* branch);
-void flatpak_reader_get_permissions(void* handle, const char* app_id);
-void flatpak_reader_check_updates(void* handle);
+void flatpak_reader_get_permissions(void* handle, Dart_Port port, const char* app_id);
+void flatpak_reader_check_updates(void* handle, Dart_Port port);
+// Fetches the metadata keyfile for a remote ref (no install required).
+// Posts the raw metadata string as a 0x01 payload, then 0xFF sentinel.
+void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
+                                          const char* ref);
+// Invalidate cached data so next list call returns fresh results.
+void flatpak_reader_drop_caches(void* handle);
 
 // ── User-installation remote management (no polkit required) ─────────────
 void* flatpak_user_remote_create(Dart_Port result_port);

@@ -21,37 +21,27 @@ extern void post_error_to(Dart_Port port, const char* msg);
 // Local post helpers (self-contained for this translation unit).
 namespace {
 
+void post_bytes(Dart_Port port, const uint8_t* data, size_t len) {
+    Dart_CObject obj;
+    obj.type = Dart_CObject_kTypedData;
+    obj.value.as_typed_data.type = Dart_TypedData_kUint8;
+    obj.value.as_typed_data.length = static_cast<intptr_t>(len);
+    obj.value.as_typed_data.values = const_cast<uint8_t*>(data);
+    Dart_PostCObject_DL(port, &obj);
+}
+
 void post_ok(Dart_Port port) {
     uint8_t buf[1] = {0x01};
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kExternalTypedData;
-    obj.value.as_external_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_external_typed_data.length = 1;
-    obj.value.as_external_typed_data.data = buf;
-    obj.value.as_external_typed_data.peer = nullptr;
-    obj.value.as_external_typed_data.callback = nullptr;
-    Dart_PostCObject_DL(port, &obj);
+    post_bytes(port, buf, 1);
 }
 
 void post_error(Dart_Port port, const char* msg) {
     auto len = static_cast<uint32_t>(std::strlen(msg));
-    auto total = 1 + sizeof(uint32_t) + len;
-    auto* buf = new uint8_t[total];
+    std::vector<uint8_t> buf(1 + sizeof(uint32_t) + len);
     buf[0] = 0x02;
-    std::memcpy(buf + 1, &len, sizeof(uint32_t));
-    std::memcpy(buf + 1 + sizeof(uint32_t), msg, len);
-
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kExternalTypedData;
-    obj.value.as_external_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_external_typed_data.length = static_cast<intptr_t>(total);
-    obj.value.as_external_typed_data.data = buf;
-    obj.value.as_external_typed_data.peer = buf;
-    obj.value.as_external_typed_data.callback = [](void*, void* peer) {
-        delete[] static_cast<uint8_t*>(peer);
-    };
-
-    Dart_PostCObject_DL(port, &obj);
+    std::memcpy(buf.data() + 1, &len, sizeof(uint32_t));
+    std::memcpy(buf.data() + 1 + sizeof(uint32_t), msg, len);
+    post_bytes(port, buf.data(), buf.size());
 }
 
 // ── Apply RemoteConfig fields to a FlatpakRemote GObject ────────────────
@@ -73,7 +63,8 @@ void apply_config(FlatpakRemote* remote, const RemoteConfig& cfg) {
         flatpak_remote_set_default_branch(remote, cfg.defaultBranch.c_str());
     }
     if (!cfg.subset.empty()) {
-        flatpak_remote_set_subset(remote, cfg.subset.c_str());
+        // flatpak_remote_set_subset not available in all libflatpak versions
+        (void)remote;  // subset: cfg.subset
     }
     if (!cfg.collectionId.empty()) {
         flatpak_remote_set_collection_id(remote, cfg.collectionId.c_str());
@@ -102,7 +93,7 @@ void apply_config(FlatpakRemote* remote, const RemoteConfig& cfg) {
 RemoteConfig decode_config(const uint8_t* buf, int64_t len) {
     RemoteConfig cfg;
     if (buf && len > 0) {
-        glz::read_binary(cfg, std::span{buf, static_cast<size_t>(len)});
+        glz::read_binary(std::span{buf, static_cast<size_t>(len)}, cfg);
     }
     return cfg;
 }
@@ -260,12 +251,20 @@ void flatpak_user_remote_modify(void* handle, const char* name, const uint8_t* c
 void flatpak_user_remote_remove(void* handle, const char* name, bool force) {
     auto* b = static_cast<RemoteBridge*>(handle);
     g_autoptr(GError) err = nullptr;
-    bool ok = flatpak_installation_remove_remote(b->installation, name, nullptr, &err);
-    if (!ok && force) {
-        // Force removal: try again ignoring errors about installed refs
+
+    if (force) {
+        // Force removal: disable the remote first, then remove.
+        // This matches `flatpak remote-delete --force` behavior.
+        g_autoptr(FlatpakRemote) remote =
+            flatpak_installation_get_remote_by_name(b->installation, name, nullptr, &err);
+        if (remote) {
+            flatpak_remote_set_disabled(remote, TRUE);
+            flatpak_installation_modify_remote(b->installation, remote, nullptr, nullptr);
+        }
         err = nullptr;
-        ok = flatpak_installation_remove_remote(b->installation, name, nullptr, &err);
     }
+
+    bool ok = flatpak_installation_remove_remote(b->installation, name, nullptr, &err);
     ok ? post_ok(b->port) : post_error(b->port, err->message);
 }
 

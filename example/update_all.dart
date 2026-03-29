@@ -6,7 +6,7 @@ import 'dart:io';
 import 'package:flatpak_dart/flatpak_dart.dart';
 
 Future<void> main() async {
-  final client = FlatpakClient.system();
+  final client = FlatpakClient.user();
 
   // Check what needs updating
   final updates = await client.checkForUpdates();

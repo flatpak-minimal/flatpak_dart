@@ -6,7 +6,7 @@
 
 #include "glaze_meta.h"
 
-struct FlatpakRef {
+struct FpRef {
     std::string kind;  // "app" | "runtime"
     std::string name;
     std::string arch;
@@ -16,16 +16,15 @@ struct FlatpakRef {
 };
 
 template <>
-struct glz::meta<FlatpakRef> {
+struct glz::meta<FpRef> {
     static constexpr auto fields = std::make_tuple(
-        glz::field("kind", &FlatpakRef::kind), glz::field("name", &FlatpakRef::name),
-        glz::field("arch", &FlatpakRef::arch), glz::field("branch", &FlatpakRef::branch),
-        glz::field("commit", &FlatpakRef::commit),
-        glz::field("collectionId", &FlatpakRef::collectionId));
+        glz::field("kind", &FpRef::kind), glz::field("name", &FpRef::name),
+        glz::field("arch", &FpRef::arch), glz::field("branch", &FpRef::branch),
+        glz::field("commit", &FpRef::commit), glz::field("collectionId", &FpRef::collectionId));
 };
 
 struct InstalledApp {
-    FlatpakRef ref;
+    FpRef ref;
     std::string origin;
     std::string latestCommit;
     std::string installedPath;

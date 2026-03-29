@@ -1,6 +1,6 @@
 // InstallationReader — read-only libflatpak query bridge.
 // All operations use flatpak_installation_* and run on the caller's thread.
-// Results are posted to Dart via Dart_PostCObject_DL.
+// Results are posted to the Dart_Port passed per-call.
 #pragma once
 #include <flatpak/flatpak.h>
 
@@ -9,18 +9,20 @@
 
 class InstallationReader {
    public:
-    InstallationReader(Dart_Port port, FlatpakInstallation* inst);
+    explicit InstallationReader(FlatpakInstallation* inst);
     ~InstallationReader();
 
-    void list_apps(bool include_runtimes);
-    void list_remotes();
-    void get_remote_info(const char* name);
-    void list_remote_apps(const char* name, const char* arch, bool include_runtimes);
-    void get_app_info(const char* app_id, const char* arch, const char* branch);
-    void get_permissions(const char* app_id);
-    void check_updates();
+    void list_apps(Dart_Port port, bool include_runtimes);
+    void list_remotes(Dart_Port port);
+    void get_remote_info(Dart_Port port, const char* name);
+    void list_remote_apps(Dart_Port port, const char* name, const char* arch,
+                          bool include_runtimes);
+    void get_app_info(Dart_Port port, const char* app_id, const char* arch, const char* branch);
+    void get_permissions(Dart_Port port, const char* app_id);
+    void check_updates(Dart_Port port);
+    void fetch_remote_metadata(Dart_Port port, const char* remote, const char* ref);
+    void drop_caches();
 
    private:
-    Dart_Port port_;
     FlatpakInstallation* installation_;
 };

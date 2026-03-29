@@ -12,4 +12,5 @@ export 'src/permissions.dart';
 export 'src/remote.dart';
 export 'src/remote_manager.dart';
 export 'src/transaction.dart' hide TransactionBridge, VoidCallback;
+export 'src/ffi/codec.dart' show MetadataEntry;
 export 'src/update_monitor.dart';

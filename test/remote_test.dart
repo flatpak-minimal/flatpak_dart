@@ -127,7 +127,7 @@ void main() {
     });
 
     test('Flathub variants share the same base URL', () {
-      const base = 'https://dl.flathub.org/repo/flathub.flatpakrepo';
+      const base = 'https://dl.flathub.org/repo/';
       expect(KnownRemotes.flathub.url, base);
       expect(KnownRemotes.flathubVerified.url, base);
       expect(KnownRemotes.flathubFloss.url, base);
