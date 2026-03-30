@@ -175,7 +175,9 @@ abstract final class GlazeCodec {
   // ── TransactionProgress field order: op, ref, progress(u32),
   //    bytesTransferred(u64), bytesTotal(u64), status
   static TransactionProgressData decodeTransactionProgress(
-      Uint8List data, int offset) {
+    Uint8List data,
+    int offset,
+  ) {
     final r = _BinaryReader(data, offset);
     return TransactionProgressData(
       op: r.readString(),
@@ -205,11 +207,13 @@ abstract final class GlazeCodec {
     final count = r.readUint64();
     final entries = <MetadataEntry>[];
     for (var i = 0; i < count; i++) {
-      entries.add(MetadataEntry(
-        section: r.readString(),
-        key: r.readString(),
-        value: r.readString(),
-      ));
+      entries.add(
+        MetadataEntry(
+          section: r.readString(),
+          key: r.readString(),
+          value: r.readString(),
+        ),
+      );
     }
     return entries;
   }

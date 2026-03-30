@@ -39,7 +39,10 @@ void main() {
 
     test('FlatpakRemote is exported', () {
       const r = FlatpakRemote(
-          name: 'test', url: 'https://example.com', title: 'Test');
+        name: 'test',
+        url: 'https://example.com',
+        title: 'Test',
+      );
       expect(r.name, 'test');
     });
 
@@ -61,8 +64,7 @@ void main() {
     });
 
     test('FlatpakPermission is exported', () {
-      const p = FlatpakPermission(
-          section: 'test', key: 'key', value: 'val');
+      const p = FlatpakPermission(section: 'test', key: 'key', value: 'val');
       expect(p.section, 'test');
     });
 
@@ -84,16 +86,17 @@ void main() {
     });
 
     test('Exception types are exported', () {
+      expect(const FlatpakPermissionException('x'), isA<FlatpakException>());
       expect(
-          const FlatpakPermissionException('x'), isA<FlatpakException>());
-      expect(const FlatpakServiceUnavailableException('x'),
-          isA<FlatpakException>());
-      expect(const FlatpakTransactionException('x', ref: ''),
-          isA<FlatpakException>());
+        const FlatpakServiceUnavailableException('x'),
+        isA<FlatpakException>(),
+      );
       expect(
-          const FlatpakNotFoundException('x'), isA<FlatpakException>());
-      expect(
-          const FlatpakRemoteException('x'), isA<FlatpakException>());
+        const FlatpakTransactionException('x', ref: ''),
+        isA<FlatpakException>(),
+      );
+      expect(const FlatpakNotFoundException('x'), isA<FlatpakException>());
+      expect(const FlatpakRemoteException('x'), isA<FlatpakException>());
     });
   });
 }

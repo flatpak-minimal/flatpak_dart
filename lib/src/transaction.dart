@@ -89,8 +89,7 @@ class TransactionProgress {
   }
 
   @override
-  String toString() =>
-      '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
+  String toString() => '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
       '$progressLabel  [$status]';
 
   static String _fmt(int n) => n >= 1 << 30
@@ -121,8 +120,10 @@ class TransactionBridge {
     final ctrl = StreamController<TransactionProgress>.broadcast();
     final done = Completer<void>();
 
-    final txHandle =
-        FlatpakBindings.txCreate(_workerHandle, port.sendPort.nativePort);
+    final txHandle = FlatpakBindings.txCreate(
+      _workerHandle,
+      port.sendPort.nativePort,
+    );
 
     addOps(txHandle);
 
@@ -132,14 +133,16 @@ class TransactionBridge {
         case 0x10:
           final p = GlazeCodec.decodeTransactionProgress(msg, 1);
           if (!ctrl.isClosed) {
-            ctrl.add(TransactionProgress(
-              op: p.op,
-              ref: p.ref,
-              progressPercent: p.progressPercent,
-              bytesTransferred: p.bytesTransferred,
-              bytesTotal: p.bytesTotal,
-              status: p.status,
-            ));
+            ctrl.add(
+              TransactionProgress(
+                op: p.op,
+                ref: p.ref,
+                progressPercent: p.progressPercent,
+                bytesTransferred: p.bytesTransferred,
+                bytesTotal: p.bytesTotal,
+                status: p.status,
+              ),
+            );
           }
         case 0x01:
           ctrl.close();

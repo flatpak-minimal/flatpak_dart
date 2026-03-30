@@ -49,7 +49,10 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerListApps(
-        _handle, port.sendPort.nativePort, includeRuntimes);
+      _handle,
+      port.sendPort.nativePort,
+      includeRuntimes,
+    );
     return completer.future;
   }
 
@@ -104,7 +107,10 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerGetRemoteInfo(
-        _handle, port.sendPort.nativePort, remoteName);
+      _handle,
+      port.sendPort.nativePort,
+      remoteName,
+    );
     return completer.future;
   }
 
@@ -135,7 +141,12 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerListRemoteApps(
-        _handle, port.sendPort.nativePort, remoteName, arch, includeRuntimes);
+      _handle,
+      port.sendPort.nativePort,
+      remoteName,
+      arch,
+      includeRuntimes,
+    );
     return controller.stream;
   }
 
@@ -166,7 +177,12 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerGetAppInfo(
-        _handle, port.sendPort.nativePort, appId, arch, branch);
+      _handle,
+      port.sendPort.nativePort,
+      appId,
+      arch,
+      branch,
+    );
     return completer.future;
   }
 
@@ -191,7 +207,10 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerGetPermissions(
-        _handle, port.sendPort.nativePort, appId);
+      _handle,
+      port.sendPort.nativePort,
+      appId,
+    );
     return completer.future;
   }
 
@@ -225,7 +244,9 @@ class FlatpakInstallation {
 
   /// Fetch metadata (permissions) for a remote ref without installing it.
   Future<List<MetadataEntry>> fetchRemoteMetadata(
-      String remote, String ref) async {
+    String remote,
+    String ref,
+  ) async {
     final port = ReceivePort('flatpak.fetchMetadata');
     final completer = Completer<List<MetadataEntry>>();
 
@@ -248,7 +269,11 @@ class FlatpakInstallation {
     });
 
     FlatpakBindings.readerFetchRemoteMetadata(
-        _handle, port.sendPort.nativePort, remote, ref);
+      _handle,
+      port.sendPort.nativePort,
+      remote,
+      ref,
+    );
     return completer.future;
   }
 

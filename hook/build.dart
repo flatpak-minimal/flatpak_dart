@@ -71,7 +71,7 @@ void main(List<String> args) async {
 
 String? _findCompiler(List<String> candidates) {
   for (final name in candidates) {
-    final result = Process.runSync('which', [name]);
+    final result = Process.runSync('sh', ['-c', 'command -v $name']);
     if (result.exitCode == 0) {
       return (result.stdout as String).trim();
     }

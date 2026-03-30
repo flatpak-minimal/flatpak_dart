@@ -46,16 +46,20 @@ class FlatpakClient {
   // ── Read operations (libflatpak — no D-Bus, no polkit) ────────────────
 
   /// List installed applications.
-  Future<List<FlatpakApplication>> listApplications(
-          {bool includeRuntimes = false}) =>
+  Future<List<FlatpakApplication>> listApplications({
+    bool includeRuntimes = false,
+  }) =>
       _installation.listApplications(includeRuntimes: includeRuntimes);
 
   /// List configured remotes.
   Future<List<FlatpakRemote>> listRemotes() => _installation.listRemotes();
 
   /// Get detailed info for one application.
-  Future<FlatpakApplication> info(String appId,
-          {String arch = '', String branch = ''}) =>
+  Future<FlatpakApplication> info(
+    String appId, {
+    String arch = '',
+    String branch = '',
+  }) =>
       _installation.getAppInfo(appId, arch: arch, branch: branch);
 
   /// Get permission overrides for an application.
@@ -65,13 +69,11 @@ class FlatpakClient {
   /// Fetch metadata (sandbox permissions) for a remote ref before installing.
   /// Returns parsed key-value entries from the [Context], [Session Bus Policy],
   /// [System Bus Policy], and [Environment] sections of the app's metadata.
-  Future<List<MetadataEntry>> fetchRemoteMetadata(
-          String remote, String ref) =>
+  Future<List<MetadataEntry>> fetchRemoteMetadata(String remote, String ref) =>
       _installation.fetchRemoteMetadata(remote, ref);
 
   /// Check which installed applications have updates available.
-  Future<List<FlatpakRef>> checkForUpdates() =>
-      _installation.checkForUpdates();
+  Future<List<FlatpakRef>> checkForUpdates() => _installation.checkForUpdates();
 
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 
@@ -114,7 +116,9 @@ class FlatpakClient {
     final controller = StreamController<UpdateAvailableEvent>.broadcast();
 
     final handle = FlatpakBindings.monitorCreate(
-        port.sendPort.nativePort, _installation.name);
+      port.sendPort.nativePort,
+      _installation.name,
+    );
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;

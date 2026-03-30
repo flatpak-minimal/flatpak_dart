@@ -7,8 +7,11 @@ function(enable_coverage target)
         COMMAND ${LCOV} --capture
                 --directory ${CMAKE_BINARY_DIR}
                 --output-file coverage.info
-                --exclude "*/test/*" --exclude "*/generated/*"
-                --exclude "*/dart_api_dl*" --exclude "/usr/*"
+                --no-external
+                --base-directory ${CMAKE_SOURCE_DIR}
+                --exclude "*/generated/*"
+                --exclude "*/dart_api_dl*"
+                --ignore-errors unused
         COMMAND ${GENHTML} coverage.info
                 --output-directory coverage_html
                 --title "flatpak_dart C++ coverage" --legend

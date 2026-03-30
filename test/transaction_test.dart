@@ -97,15 +97,15 @@ void main() {
 
   group('FlatpakTransactionException', () {
     test('isAlreadyRunning matches lock-contention message', () {
-      const e =
-          FlatpakTransactionException('error: already running', ref: '');
+      const e = FlatpakTransactionException('error: already running', ref: '');
       expect(e.isAlreadyRunning, isTrue);
     });
 
     test('isAlreadyRunning matches FLATPAK_ERROR_ALREADY_RUNNING', () {
       const e = FlatpakTransactionException(
-          'FLATPAK_ERROR_ALREADY_RUNNING',
-          ref: '');
+        'FLATPAK_ERROR_ALREADY_RUNNING',
+        ref: '',
+      );
       expect(e.isAlreadyRunning, isTrue);
     });
 
@@ -115,14 +115,12 @@ void main() {
     });
 
     test('isCancelled matches cancellation message', () {
-      const e = FlatpakTransactionException('Operation was cancelled',
-          ref: '');
+      const e = FlatpakTransactionException('Operation was cancelled', ref: '');
       expect(e.isCancelled, isTrue);
     });
 
     test('isCancelled false for other messages', () {
-      const e =
-          FlatpakTransactionException('some other error', ref: '');
+      const e = FlatpakTransactionException('some other error', ref: '');
       expect(e.isCancelled, isFalse);
     });
 
