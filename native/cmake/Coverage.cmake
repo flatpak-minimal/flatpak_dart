@@ -9,8 +9,9 @@ function(enable_coverage target)
                 --output-file coverage.info
                 --no-external
                 --base-directory ${CMAKE_SOURCE_DIR}
-                --exclude "*/test/*" --exclude "*/generated/*"
+                --exclude "*/generated/*"
                 --exclude "*/dart_api_dl*"
+                --ignore-errors unused
         COMMAND ${GENHTML} coverage.info
                 --output-directory coverage_html
                 --title "flatpak_dart C++ coverage" --legend
