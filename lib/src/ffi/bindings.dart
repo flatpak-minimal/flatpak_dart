@@ -104,6 +104,35 @@ external void _readerFetchRemoteMetadata(
   Pointer<Utf8> ref,
 );
 
+@Native<
+  Void Function(
+    Pointer<Void>,
+    Int64,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+  )
+>(symbol: 'flatpak_reader_launch')
+external void _readerLaunch(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> appId,
+  Pointer<Utf8> arch,
+  Pointer<Utf8> branch,
+  Pointer<Utf8> commit,
+);
+
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_stop',
+)
+external void _readerStop(Pointer<Void> handle, int port, Pointer<Utf8> appId);
+
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_list_running',
+)
+external void _readerListRunning(Pointer<Void> handle, int port);
+
 // ── Worker ──────────────────────────────────────────────────────────────────
 
 @Native<Pointer<Void> Function(Pointer<Utf8>)>(symbol: 'flatpak_worker_create')
@@ -393,6 +422,40 @@ abstract final class FlatpakBindings {
       calloc.free(f);
     }
   }
+
+  static void readerLaunch(
+    Pointer<Void> handle,
+    int port,
+    String appId,
+    String arch,
+    String branch,
+    String commit,
+  ) {
+    final id = appId.toNativeUtf8();
+    final a = arch.toNativeUtf8();
+    final b = branch.toNativeUtf8();
+    final c = commit.toNativeUtf8();
+    try {
+      _readerLaunch(handle, port, id, a, b, c);
+    } finally {
+      calloc.free(id);
+      calloc.free(a);
+      calloc.free(b);
+      calloc.free(c);
+    }
+  }
+
+  static void readerStop(Pointer<Void> handle, int port, String appId) {
+    final id = appId.toNativeUtf8();
+    try {
+      _readerStop(handle, port, id);
+    } finally {
+      calloc.free(id);
+    }
+  }
+
+  static void readerListRunning(Pointer<Void> handle, int port) =>
+      _readerListRunning(handle, port);
 
   // ── Worker ─────────────────────────────────────────────────────────────
   static Pointer<Void> workerCreate(String installation) {

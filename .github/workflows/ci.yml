@@ -190,6 +190,8 @@ jobs:
           path: build-cov/coverage_html/
           retention-days: 14
       - uses: romeovs/lcov-reporter-action@v0.3.1
+        # never fail the job on the comment step
+        continue-on-error: true
         with:
           lcov-file: build-cov/coverage.info
           github-token: ${{ secrets.GITHUB_TOKEN }}

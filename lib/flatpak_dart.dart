@@ -8,6 +8,7 @@ library;
 export 'src/application.dart';
 export 'src/exceptions.dart';
 export 'src/flatpak_client.dart';
+export 'src/instance.dart';
 export 'src/known_remotes.dart';
 export 'src/permissions.dart';
 export 'src/remote.dart';

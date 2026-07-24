@@ -17,6 +17,7 @@ import 'application.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
+import 'instance.dart';
 import 'permissions.dart';
 import 'remote.dart';
 import 'remote_manager.dart';
@@ -74,6 +75,29 @@ class FlatpakClient {
 
   /// Check which installed applications have updates available.
   Future<List<FlatpakRef>> checkForUpdates() => _installation.checkForUpdates();
+
+  // ── App lifecycle (libflatpak launch / instances) ──────────────────────
+
+  /// Launch an installed application in its sandbox ("tap to open").
+  /// Pass empty [arch]/[branch]/[commit] to use the installed defaults.
+  Future<void> launch(
+    String appId, {
+    String arch = '',
+    String branch = '',
+    String commit = '',
+  }) =>
+      _installation.launch(
+        appId,
+        arch: arch,
+        branch: branch,
+        commit: commit,
+      );
+
+  /// Stop every running instance of [appId].
+  Future<void> stop(String appId) => _installation.stop(appId);
+
+  /// List running sandbox instances across the host.
+  Future<List<FlatpakInstance>> listRunning() => _installation.listRunning();
 
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 

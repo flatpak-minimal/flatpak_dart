@@ -10,6 +10,7 @@ import 'application.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart';
+import 'instance.dart';
 import 'permissions.dart';
 import 'remote.dart';
 
@@ -274,6 +275,97 @@ class FlatpakInstallation {
       remote,
       ref,
     );
+    return completer.future;
+  }
+
+  /// Launch an installed application in its sandbox.
+  /// Completes when the sandbox has been spawned (non-blocking on the app).
+  Future<void> launch(
+    String appId, {
+    String arch = '',
+    String branch = '',
+    String commit = '',
+  }) async {
+    final port = ReceivePort('flatpak.launch');
+    final completer = Completer<void>();
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete();
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerLaunch(
+      _handle,
+      port.sendPort.nativePort,
+      appId,
+      arch,
+      branch,
+      commit,
+    );
+    return completer.future;
+  }
+
+  /// Terminate every running instance of [appId].
+  /// Throws [FlatpakNotFoundException] if no running instance was found.
+  Future<void> stop(String appId) async {
+    final port = ReceivePort('flatpak.stop');
+    final completer = Completer<void>();
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete();
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerStop(_handle, port.sendPort.nativePort, appId);
+    return completer.future;
+  }
+
+  /// List running sandbox instances across the host.
+  Future<List<FlatpakInstance>> listRunning() async {
+    final port = ReceivePort('flatpak.listRunning');
+    final completer = Completer<List<FlatpakInstance>>();
+    final results = <FlatpakInstance>[];
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1) {
+            results.add(GlazeCodec.decodeInstance(msg, 1));
+          }
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerListRunning(_handle, port.sendPort.nativePort);
     return completer.future;
   }
 

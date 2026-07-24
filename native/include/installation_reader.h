@@ -21,6 +21,12 @@ class InstallationReader {
     void get_permissions(Dart_Port port, const char* app_id);
     void check_updates(Dart_Port port);
     void fetch_remote_metadata(Dart_Port port, const char* remote, const char* ref);
+    // Launch/stop/list are actions
+    // flatpak_installation_launch() spawns and returns immediately.
+    void launch(Dart_Port port, const char* app_id, const char* arch, const char* branch,
+                const char* commit);
+    void stop(Dart_Port port, const char* app_id);
+    void list_running(Dart_Port port);
     void drop_caches();
 
    private:
