@@ -392,6 +392,36 @@ class FlatpakInstallation {
     return completer.future;
   }
 
+  /// Refresh the on-disk AppStream catalog for [remote] (empty [arch] = default).
+  /// Wraps `flatpak_installation_update_appstream_sync`.
+  Future<void> refreshAppstream(String remote, {String arch = ''}) async {
+    final port = ReceivePort('flatpak.refreshAppstream');
+    final completer = Completer<void>();
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete();
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerRefreshAppstream(
+      _handle,
+      port.sendPort.nativePort,
+      remote,
+      arch,
+    );
+    return completer.future;
+  }
+
   void close() {
     FlatpakBindings.readerDestroy(_handle);
   }

@@ -5,7 +5,10 @@
 /// without a copy on send. No D-Bus client library required.
 library;
 
+export 'package:appstream_dart/appstream.dart';
+
 export 'src/application.dart';
+export 'src/appstream/catalog.dart';
 export 'src/exceptions.dart';
 export 'src/flatpak_client.dart';
 export 'src/instance.dart';

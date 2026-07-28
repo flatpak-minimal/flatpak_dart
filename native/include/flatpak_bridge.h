@@ -44,6 +44,10 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port);
 // Posts the raw metadata string as a 0x01 payload, then 0xFF sentinel.
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref);
+// Refresh the on-disk AppStream catalog for a remote (empty arch = default arch).
+// Wraps flatpak_installation_update_appstream_sync(); posts 0xFF on success, 0x02 on error.
+void flatpak_reader_refresh_appstream(void* handle, Dart_Port port, const char* remote,
+                                      const char* arch);
 // Launch an installed app via flatpak_installation_launch(). Non-blocking:
 // spawns the sandbox and posts 0xFF on success or 0x02 on error.
 void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
