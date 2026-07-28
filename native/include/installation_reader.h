@@ -27,6 +27,9 @@ class InstallationReader {
     void get_permissions(Dart_Port port, const char* app_id);
     void check_updates(Dart_Port port);
     void fetch_remote_metadata(Dart_Port port, const char* remote, const char* ref);
+    // Refresh the downloaded AppStream catalog for a remote (empty arch = default).
+    // Wraps flatpak_installation_update_appstream_sync(); posts 0xFF or 0x02.
+    void refresh_appstream(Dart_Port port, const char* remote, const char* arch);
     void launch(Dart_Port port, const char* app_id, const char* arch, const char* branch,
                 const char* commit);
     void stop(Dart_Port port, const char* app_id);

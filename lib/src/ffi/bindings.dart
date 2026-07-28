@@ -133,6 +133,16 @@ external void _readerStop(Pointer<Void> handle, int port, Pointer<Utf8> appId);
 )
 external void _readerListRunning(Pointer<Void> handle, int port);
 
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_refresh_appstream',
+)
+external void _readerRefreshAppstream(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> remote,
+  Pointer<Utf8> arch,
+);
+
 // ── Worker ──────────────────────────────────────────────────────────────────
 
 @Native<Pointer<Void> Function(Pointer<Utf8>)>(symbol: 'flatpak_worker_create')
@@ -456,6 +466,22 @@ abstract final class FlatpakBindings {
 
   static void readerListRunning(Pointer<Void> handle, int port) =>
       _readerListRunning(handle, port);
+
+  static void readerRefreshAppstream(
+    Pointer<Void> handle,
+    int port,
+    String remote,
+    String arch,
+  ) {
+    final r = remote.toNativeUtf8();
+    final a = arch.toNativeUtf8();
+    try {
+      _readerRefreshAppstream(handle, port, r, a);
+    } finally {
+      calloc.free(r);
+      calloc.free(a);
+    }
+  }
 
   // ── Worker ─────────────────────────────────────────────────────────────
   static Pointer<Void> workerCreate(String installation) {

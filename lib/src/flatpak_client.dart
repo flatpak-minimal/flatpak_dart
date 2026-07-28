@@ -14,6 +14,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'application.dart';
+import 'appstream/catalog.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
@@ -105,6 +106,14 @@ class FlatpakClient {
 
   /// List running sandbox instances across the host.
   Future<List<FlatpakInstance>> listRunning() => _installation.listRunning();
+
+  // ── AppStream catalog + icons ─────────────────────────────────────────
+
+  /// AppStream metadata (icons, screenshots, releases) and installed-app
+  /// icon resolution, backed by the appstream_dart engine.
+  late final FlatpakAppStream appStream = FlatpakAppStream.forName(
+    _installation,
+  );
 
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 

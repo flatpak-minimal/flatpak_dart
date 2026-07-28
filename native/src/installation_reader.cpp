@@ -801,6 +801,19 @@ void InstallationReader::drop_caches() {
     flatpak_installation_drop_caches(installation_, nullptr, &err);
 }
 
+void InstallationReader::refresh_appstream(Dart_Port port, const char* remote, const char* arch) {
+    const char* use_arch = (arch && *arch) ? arch : nullptr;  // NULL = default arch
+    g_autoptr(GError) err = nullptr;
+    gboolean changed = FALSE;
+    gboolean ok = flatpak_installation_update_appstream_sync(installation_, remote, use_arch,
+                                                             &changed, nullptr, &err);
+    if (!ok) {
+        post_error(port, err ? err->message : "appstream refresh failed");
+        return;
+    }
+    post_sentinel(port);
+}
+
 // ── C ABI wrappers ──────────────────────────────────────────────────────────
 
 static FlatpakInstallation* open_installation(const char* name) {
@@ -864,6 +877,11 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port) {
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref) {
     static_cast<InstallationReader*>(handle)->fetch_remote_metadata(port, remote, ref);
+}
+
+void flatpak_reader_refresh_appstream(void* handle, Dart_Port port, const char* remote,
+                                      const char* arch) {
+    static_cast<InstallationReader*>(handle)->refresh_appstream(port, remote, arch);
 }
 
 void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
