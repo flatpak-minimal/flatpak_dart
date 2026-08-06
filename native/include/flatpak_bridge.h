@@ -6,6 +6,8 @@
 // Message discriminator byte at offset 0:
 //   0x01 = success / list-end sentinel
 //   0x02 = error (UTF-8, uint32_t length-prefix)
+//   0x03 = launch error (UTF-8, uint32_t length-prefix) — a launch_full()
+//          failure, distinct from the 0x02 "app not installed" pre-check.
 //   0x10 = TransactionProgress (glaze-encoded, in-flight during tx_run)
 //   0x11 = UpdateAvailable (FlatpakMonitor inotify signal)
 //   0xFF = streaming list end sentinel

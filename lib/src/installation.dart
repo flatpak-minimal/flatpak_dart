@@ -280,26 +280,48 @@ class FlatpakInstallation {
 
   /// Launch an installed application in its sandbox.
   /// Completes when the sandbox has been spawned (non-blocking on the app).
-  Future<void> launch(
+  /// Returns the [FlatpakInstance] libflatpak created for the launch, so
+  /// callers get the instanceId/pid immediately instead of polling [listRunning].
+  Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
   }) async {
     final port = ReceivePort('flatpak.launch');
-    final completer = Completer<void>();
+    final completer = Completer<FlatpakInstance>();
+    FlatpakInstance? result;
 
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
       switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1) {
+            result = GlazeCodec.decodeInstance(msg, 1);
+          }
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
           if (!completer.isCompleted) {
             completer.completeError(FlatpakNotFoundException(err));
           }
           port.close();
+        case 0x03:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakLaunchException(err));
+          }
+          port.close();
         case 0xFF:
-          if (!completer.isCompleted) completer.complete();
+          if (!completer.isCompleted) {
+            final instance = result;
+            if (instance != null) {
+              completer.complete(instance);
+            } else {
+              completer.completeError(
+                const FlatpakLaunchException('launch produced no instance'),
+              );
+            }
+          }
           port.close();
       }
     });
@@ -316,6 +338,7 @@ class FlatpakInstallation {
   }
 
   /// Terminate every running instance of [appId].
+  /// Returns as soon as SIGTERM has been sent to every matched instance.
   /// Throws [FlatpakNotFoundException] if no running instance was found.
   Future<void> stop(String appId) async {
     final port = ReceivePort('flatpak.stop');

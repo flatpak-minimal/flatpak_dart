@@ -5,6 +5,7 @@
 #include "installation_reader.h"
 
 #include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstring>
@@ -30,8 +31,24 @@ static void post_error(Dart_Port port, const char* msg) {
     flatpak_nc::post_framed_error(port, 0x02, msg);
 }
 
+static void post_launch_error(Dart_Port port, const char* msg) {
+    flatpak_nc::post_framed_error(port, 0x03, msg);
+}
+
 static const char* safe_str(const char* s) {
     return s ? s : "";
+}
+
+static gpointer reap_thread(gpointer data) {
+    auto pid = static_cast<GPid>(GPOINTER_TO_INT(data));
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return nullptr;
+}
+
+static void reap_async(GPid pid) {
+    GThread* t = g_thread_new("flatpak-reap", reap_thread, GINT_TO_POINTER(pid));
+    g_thread_unref(t);
 }
 
 // ── InstallationReader ──────────────────────────────────────────────────────
@@ -354,10 +371,47 @@ void InstallationReader::launch(Dart_Port port, const char* app_id, const char* 
                                                    app_id, use_arch, use_branch, use_commit,
                                                    &instance, nullptr, &err);
     if (!ok) {
-        post_error(port, err ? err->message : "launch failed");
+        post_launch_error(port, err ? err->message : "launch failed");
         return;
     }
+
+    auto outer_pid = static_cast<GPid>(flatpak_instance_get_pid(instance));
+    if (outer_pid > 0) {
+        reap_async(outer_pid);
+    }
+
+    FpInstance info;
+    info.appId = safe_str(flatpak_instance_get_app(instance));
+    info.instanceId = safe_str(flatpak_instance_get_id(instance));
+    info.arch = safe_str(flatpak_instance_get_arch(instance));
+    info.branch = safe_str(flatpak_instance_get_branch(instance));
+    info.commit = safe_str(flatpak_instance_get_commit(instance));
+    info.pid = flatpak_instance_get_pid(instance);
+    info.childPid = flatpak_instance_get_child_pid(instance);
+    info.isRunning = flatpak_instance_is_running(instance);
+
+    post_glaze(port, 0x01, info);
     post_sentinel(port);
+}
+
+// Grace period + SIGKILL escalation for stop(), on a detached background thread
+static gpointer stop_escalate_thread(gpointer data) {
+    auto pid = static_cast<pid_t>(GPOINTER_TO_INT(data));
+    for (int k = 0; k < 15; k++) {  // ~1.5s grace period
+        if (kill(pid, 0) != 0) {
+            return nullptr;  // already exited
+        }
+        usleep(100000);  // 100ms
+    }
+    if (kill(pid, 0) == 0) {
+        kill(pid, SIGKILL);
+    }
+    return nullptr;
+}
+
+static void stop_escalate_async(pid_t pid) {
+    GThread* t = g_thread_new("flatpak-stop", stop_escalate_thread, GINT_TO_POINTER(pid));
+    g_thread_unref(t);
 }
 
 void InstallationReader::stop(Dart_Port port, const char* app_id) {
@@ -375,17 +429,7 @@ void InstallationReader::stop(Dart_Port port, const char* app_id) {
             }
             found = true;
             kill(child_pid, SIGTERM);
-            bool exited = false;
-            for (int k = 0; k < 15; k++) {  // up to ~1.5s grace period
-                if (kill(child_pid, 0) != 0) {
-                    exited = true;
-                    break;
-                }
-                usleep(100000);  // 100ms
-            }
-            if (!exited) {
-                kill(child_pid, SIGKILL);
-            }
+            stop_escalate_async(child_pid);
         }
     }
     if (!found) {

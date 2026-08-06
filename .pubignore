@@ -1,0 +1,39 @@
+# Files excluded from the pub.dev archive but kept in git.
+# When this file is present, pub uses it instead of falling back to
+# .gitignore, so every build/dev artifact must be re-listed here.
+
+# Build artifacts (any out-of-source CMake build dir)
+build/
+build-*/
+.cache/
+*.o
+*.a
+*.so
+
+# CMake scratch
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Coverage
+coverage/
+coverage_html/
+*.gcno
+*.gcda
+lcov.info
+
+# Flutter example sub-package — has its own pubspec and hundreds of files
+# (linux/ runner, generated plugin registrant); not needed by consumers.
+example/flutter_remote_manager/
+
+# IDE / editor / OS junk
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude Code state
+.claude/

@@ -1,4 +1,4 @@
-// launch_app.dart — launch an installed app, list running instances, then stop it.
+// launch_app.dart — launch an installed app, then stop it.
 // Run as: dart run example/launch_app.dart [app_id]
 // Defaults to org.gnome.Calculator.
 
@@ -9,27 +9,15 @@ Future<void> main(List<String> args) async {
   final client = FlatpakClient.user();
 
   print('Launching $appId ...');
-  await client.launch(appId);
+  final instance = await client.launch(appId);
+  print('instance=${instance.instanceId} pid=${instance.pid} '
+      'childPid=${instance.childPid}');
 
-  // Give the sandbox a moment to register its instance.
-  await Future<void>.delayed(const Duration(seconds: 1));
+  print('\nStopping $appId ...');
+  await client.stop(appId);
+  print('Stopped (SIGTERM sent; waiting up to 2 seconds for exit)');
 
-  final running = await client.listRunning();
-  print('${running.length} running instance(s):');
-  for (final inst in running) {
-    print('  ${inst.appId.padRight(36)} '
-        'instance=${inst.instanceId} pid=${inst.pid} '
-        'running=${inst.isRunning}');
-  }
-
-  final isUp = running.any((i) => i.appId == appId && i.isRunning);
-  if (isUp) {
-    print('\nStopping $appId ...');
-    await client.stop(appId);
-    print('Stopped.');
-  } else {
-    print('\n$appId did not report a running instance (nothing to stop).');
-  }
+  await Future<void>.delayed(const Duration(seconds: 2));
 
   await client.close();
 }

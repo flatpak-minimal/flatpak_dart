@@ -80,7 +80,8 @@ class FlatpakClient {
 
   /// Launch an installed application in its sandbox ("tap to open").
   /// Pass empty [arch]/[branch]/[commit] to use the installed defaults.
-  Future<void> launch(
+  /// Returns the [FlatpakInstance] libflatpak created for the launch.
+  Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
     String branch = '',
@@ -93,7 +94,8 @@ class FlatpakClient {
         commit: commit,
       );
 
-  /// Stop every running instance of [appId].
+  /// Stop every running instance of [appId]. Returns once SIGTERM has been
+  /// sent; grace period + SIGKILL escalation continue in the background.
   Future<void> stop(String appId) => _installation.stop(appId);
 
   /// List running sandbox instances across the host.

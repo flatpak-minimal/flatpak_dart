@@ -43,3 +43,7 @@ final class FlatpakNotFoundException extends FlatpakException {
 final class FlatpakRemoteException extends FlatpakException {
   const FlatpakRemoteException(super.message);
 }
+
+final class FlatpakLaunchException extends FlatpakException {
+  const FlatpakLaunchException(super.message);
+}
