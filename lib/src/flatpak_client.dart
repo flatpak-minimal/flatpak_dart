@@ -20,6 +20,8 @@ import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
 import 'instance.dart';
 import 'permissions.dart';
+import 'portal/permission_flow.dart';
+import 'portal/permission_store.dart';
 import 'remote.dart';
 import 'remote_manager.dart';
 import 'transaction.dart';
@@ -104,6 +106,34 @@ class FlatpakClient {
     _installation,
   );
 
+  // ── Portal permissions (xdg-desktop-portal PermissionStore) ────────────
+
+  PermissionStorePortal? _permissionsStore;
+
+  /// xdg-desktop-portal PermissionStore client (session bus). Persists per-app
+  /// permission decisions for devices, location, notifications, background.
+  PermissionStorePortal get permissionsStore =>
+      _permissionsStore ??= PermissionStorePortal();
+
+  PermissionFlow? _permissionFlow;
+
+  /// Launch-time permission prompts. Listen to [PermissionFlow.requests] and
+  /// call `respond()`; decisions persist via [permissionsStore].
+  PermissionFlow get permissionFlow =>
+      _permissionFlow ??= PermissionFlow(permissionsStore, permissions);
+
+  /// Resolve an app's requested permissions (prompting for unset ones via
+  /// [permissionFlow]) and then [launch] it.
+  Future<void> launchWithPermissions(
+    String appId, {
+    String arch = '',
+    String branch = '',
+    String commit = '',
+  }) async {
+    await permissionFlow.ensureLaunchPermissions(appId);
+    await launch(appId, arch: arch, branch: branch, commit: commit);
+  }
+
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 
   /// Install an application from a remote.
@@ -170,5 +200,7 @@ class FlatpakClient {
   Future<void> close() async {
     _installation.close();
     _tx.close();
+    await _permissionFlow?.close();
+    await _permissionsStore?.close();
   }
 }

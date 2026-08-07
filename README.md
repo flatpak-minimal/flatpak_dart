@@ -21,6 +21,8 @@ no subprocess spawning, no text parsing.
 | Installed app icons | `client.appStream.installedIconPath(appId)` |
 | AppStream metadata | `client.appStream.componentDetail(appId)` (icons, screenshots, releases) |
 | Catalog refresh | `client.appStream.refresh(remote)` |
+| Portal permissions | `client.permissionsStore.check(appId, perms)`, `.set()`, `.removeAllForApp()` |
+| Launch permission prompts | `client.launchWithPermissions(appId)`, `client.permissionFlow.requests` |
 | Known remotes catalog | `KnownRemotes.flathub`, `.fedora`, `.gnomeNightly`, etc. |
 
 ## Architecture
