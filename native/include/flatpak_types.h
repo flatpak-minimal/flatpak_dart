@@ -181,3 +181,37 @@ struct glz::meta<FpInstance> {
         glz::field("childPid", &FpInstance::childPid),
         glz::field("isRunning", &FpInstance::isRunning));
 };
+
+// A configured Flatpak installation (flatpak_get_system_installations()).
+struct FpInstallationInfo {
+    std::string id;
+    std::string displayName;
+    std::string path;
+    bool isUser{};
+    int32_t priority{};
+};
+
+template <>
+struct glz::meta<FpInstallationInfo> {
+    static constexpr auto fields =
+        std::make_tuple(glz::field("id", &FpInstallationInfo::id),
+                        glz::field("displayName", &FpInstallationInfo::displayName),
+                        glz::field("path", &FpInstallationInfo::path),
+                        glz::field("isUser", &FpInstallationInfo::isUser),
+                        glz::field("priority", &FpInstallationInfo::priority));
+};
+
+// A single key=value entry from a Flatpak metadata keyfile section
+// (Context/Session Bus Policy/System Bus Policy/Environment).
+struct FpMetadataEntry {
+    std::string section;
+    std::string key;
+    std::string value;
+};
+
+template <>
+struct glz::meta<FpMetadataEntry> {
+    static constexpr auto fields = std::make_tuple(glz::field("section", &FpMetadataEntry::section),
+                                                   glz::field("key", &FpMetadataEntry::key),
+                                                   glz::field("value", &FpMetadataEntry::value));
+};

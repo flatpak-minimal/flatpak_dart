@@ -17,8 +17,8 @@ class InstallationReader {
     void list_apps(Dart_Port port, bool include_runtimes);
     void list_remotes(Dart_Port port);
     void get_remote_info(Dart_Port port, const char* name);
-    void list_remote_apps(Dart_Port port, const char* name, const char* arch,
-                          bool include_runtimes);
+    void list_remote_apps(Dart_Port port, const char* name, const char* arch, bool include_runtimes,
+                          bool wayland_only);
     void get_app_info(Dart_Port port, const char* app_id, const char* arch, const char* branch);
     void get_permissions(Dart_Port port, const char* app_id);
     void check_updates(Dart_Port port);
@@ -31,6 +31,18 @@ class InstallationReader {
     void stop(Dart_Port port, const char* app_id);
     void list_running(Dart_Port port);
     void drop_caches();
+
+    void get_version(Dart_Port port);
+    void get_default_arch(Dart_Port port);
+    void get_supported_arches(Dart_Port port);
+    void list_system_installations(Dart_Port port);
+
+    void get_runtime_ref(Dart_Port port, const char* app_id, const char* arch, const char* branch);
+
+    void is_ref_installed(Dart_Port port, const char* ref);
+
+    void list_missing_extensions(Dart_Port port, const char* app_id, const char* arch,
+                                 const char* branch);
 
    private:
     FlatpakInstallation* installation_;
