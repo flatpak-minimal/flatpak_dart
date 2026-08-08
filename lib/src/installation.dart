@@ -10,6 +10,7 @@ import 'application.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart';
+import 'installation_info.dart';
 import 'instance.dart';
 import 'permissions.dart';
 import 'remote.dart';
@@ -119,6 +120,7 @@ class FlatpakInstallation {
     String remoteName, {
     String arch = '',
     bool includeRuntimes = false,
+    bool waylandOnly = false,
   }) {
     final controller = StreamController<FlatpakRef>();
     final port = ReceivePort('flatpak.listRemoteApps');
@@ -147,6 +149,7 @@ class FlatpakInstallation {
       remoteName,
       arch,
       includeRuntimes,
+      waylandOnly: waylandOnly,
     );
     return controller.stream;
   }
@@ -195,6 +198,8 @@ class FlatpakInstallation {
     port.listen((dynamic msg) {
       if (msg is! Uint8List) return;
       switch (msg[0]) {
+        case 0x01:
+          results.add(GlazeCodec.decodeMetadataEntry(msg, 1));
         case 0x02:
           final err = GlazeCodec.decodeError(msg, 1);
           if (!completer.isCompleted) {
@@ -441,6 +446,156 @@ class FlatpakInstallation {
       remote,
       arch,
     );
+    return completer.future;
+  }
+
+  Future<String> getVersion() => _readSingleString(
+    FlatpakBindings.readerGetVersion,
+    portName: 'flatpak.getVersion',
+  );
+
+  /// The host's default Flatpak architecture.
+  Future<String> getDefaultArch() => _readSingleString(
+    FlatpakBindings.readerGetDefaultArch,
+    portName: 'flatpak.getDefaultArch',
+  );
+
+  /// Architectures Flatpak can run on this host, primary arch first.
+  Future<List<String>> getSupportedArches() async {
+    final port = ReceivePort('flatpak.getSupportedArches');
+    final completer = Completer<List<String>>();
+    final results = <String>[];
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          results.add(GlazeCodec.decodeError(msg, 1));
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerGetSupportedArches(_handle, port.sendPort.nativePort);
+    return completer.future;
+  }
+
+  /// Every configured Flatpak installation on this host (user + system installations).
+  Future<List<FlatpakInstallationInfo>> listSystemInstallations() async {
+    final port = ReceivePort('flatpak.listSystemInstallations');
+    final completer = Completer<List<FlatpakInstallationInfo>>();
+    final results = <FlatpakInstallationInfo>[];
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1) {
+            results.add(GlazeCodec.decodeInstallationInfo(msg, 1));
+          }
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerListSystemInstallations(
+      _handle,
+      port.sendPort.nativePort,
+    );
+    return completer.future;
+  }
+
+  Future<String> getRuntimeRef(
+    String appId, {
+    String arch = '',
+    String branch = '',
+  }) => _readSingleString(
+    (handle, port) =>
+        FlatpakBindings.readerGetRuntimeRef(handle, port, appId, arch, branch),
+    portName: 'flatpak.getRuntimeRef',
+  );
+
+  /// Whether [ref] (e.g. `runtime/org.foo.Platform/x86_64/1.0`) is installed.
+  Future<bool> isRefInstalled(String ref) async {
+    final result = await _readSingleString(
+      (handle, port) => FlatpakBindings.readerIsRefInstalled(handle, port, ref),
+      portName: 'flatpak.isRefInstalled',
+    );
+    return result == '1';
+  }
+
+  /// Extension refs declared in [appId]'s metadata that are required
+  /// (no `no-autodownload=true`) but not currently installed.
+  Future<List<String>> listMissingExtensions(
+    String appId, {
+    String arch = '',
+    String branch = '',
+  }) async {
+    final port = ReceivePort('flatpak.listMissingExtensions');
+    final completer = Completer<List<String>>();
+    final results = <String>[];
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          results.add(GlazeCodec.decodeError(msg, 1));
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerListMissingExtensions(
+      _handle,
+      port.sendPort.nativePort,
+      appId,
+      arch,
+      branch,
+    );
+    return completer.future;
+  }
+
+  Future<String> _readSingleString(
+    void Function(Pointer<Void>, int) call, {
+    required String portName,
+  }) async {
+    final port = ReceivePort(portName);
+    final completer = Completer<String>();
+    var result = '';
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          result = GlazeCodec.decodeError(msg, 1);
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakRemoteException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(result);
+          port.close();
+      }
+    });
+
+    call(_handle, port.sendPort.nativePort);
     return completer.future;
   }
 
