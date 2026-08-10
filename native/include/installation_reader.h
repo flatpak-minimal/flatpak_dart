@@ -1,8 +1,10 @@
 // InstallationReader — read-only libflatpak query bridge.
-// All operations use flatpak_installation_* and run on the caller's thread.
 // Results are posted to the Dart_Port passed per-call.
 #pragma once
 #include <flatpak/flatpak.h>
+
+#include <asio.hpp>
+#include <thread>
 
 #include "dart_api_dl.h"
 #include "flatpak_types.h"
@@ -21,8 +23,6 @@ class InstallationReader {
     void get_permissions(Dart_Port port, const char* app_id);
     void check_updates(Dart_Port port);
     void fetch_remote_metadata(Dart_Port port, const char* remote, const char* ref);
-    // Launch/stop/list are actions
-    // flatpak_installation_launch() spawns and returns immediately.
     void launch(Dart_Port port, const char* app_id, const char* arch, const char* branch,
                 const char* commit);
     void stop(Dart_Port port, const char* app_id);
@@ -31,4 +31,11 @@ class InstallationReader {
 
    private:
     FlatpakInstallation* installation_;
+
+    asio::io_context launch_io_;
+    asio::executor_work_guard<asio::io_context::executor_type> launch_work_guard_;
+    std::thread launch_thread_;
+
+    void launch_impl(Dart_Port port, const char* app_id, const char* arch, const char* branch,
+                     const char* commit);
 };

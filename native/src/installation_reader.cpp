@@ -4,11 +4,14 @@
 
 #include "installation_reader.h"
 
+#include <poll.h>
 #include <signal.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstring>
+#include <string>
 
 #include "flatpak_bridge.h"
 #include "flatpak_post.h"
@@ -51,13 +54,19 @@ static void reap_async(GPid pid) {
     g_thread_unref(t);
 }
 
-// ── InstallationReader ──────────────────────────────────────────────────────
+// InstallationReader
 
 InstallationReader::InstallationReader(FlatpakInstallation* inst)
-    : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
+    : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))),
+      launch_work_guard_(asio::make_work_guard(launch_io_)),
+      launch_thread_([this] { launch_io_.run(); }) {
 }
 
 InstallationReader::~InstallationReader() {
+    launch_io_.stop();
+    if (launch_thread_.joinable()) {
+        launch_thread_.join();
+    }
     g_object_unref(installation_);
 }
 
@@ -322,45 +331,90 @@ void InstallationReader::fetch_remote_metadata(Dart_Port port, const char* remot
     post_sentinel(port);
 }
 
+static bool resolve_launch_target(FlatpakInstallation* installation, const char* app_id,
+                                  const char* hint_arch, const char* hint_branch,
+                                  std::string* out_arch, std::string* out_branch) {
+    g_autoptr(GError) cerr = nullptr;
+    g_autoptr(FlatpakInstalledRef) current =
+        flatpak_installation_get_current_installed_app(installation, app_id, nullptr, &cerr);
+    if (current) {
+        const char* a = flatpak_ref_get_arch(FLATPAK_REF(current));
+        const char* b = flatpak_ref_get_branch(FLATPAK_REF(current));
+        bool arch_ok = !hint_arch || g_strcmp0(a, hint_arch) == 0;
+        bool branch_ok = !hint_branch || g_strcmp0(b, hint_branch) == 0;
+        if (arch_ok && branch_ok) {
+            *out_arch = a;
+            *out_branch = b;
+            return true;
+        }
+    }
+
+    const char* default_arch = flatpak_get_default_arch();
+    g_autoptr(GError) lerr = nullptr;
+    g_autoptr(GPtrArray) refs =
+        flatpak_installation_list_installed_refs(installation, nullptr, &lerr);
+    if (!refs) {
+        return false;
+    }
+    bool found = false;
+    for (guint i = 0; i < refs->len; i++) {
+        auto* iref = static_cast<FlatpakInstalledRef*>(refs->pdata[i]);
+        if (flatpak_ref_get_kind(FLATPAK_REF(iref)) != FLATPAK_REF_KIND_APP) {
+            continue;
+        }
+        if (g_strcmp0(flatpak_ref_get_name(FLATPAK_REF(iref)), app_id) != 0) {
+            continue;
+        }
+        const char* a = flatpak_ref_get_arch(FLATPAK_REF(iref));
+        const char* b = flatpak_ref_get_branch(FLATPAK_REF(iref));
+        if (hint_arch && g_strcmp0(a, hint_arch) != 0) {
+            continue;
+        }
+        if (hint_branch && g_strcmp0(b, hint_branch) != 0) {
+            continue;
+        }
+        if (!found || (!hint_arch && g_strcmp0(a, default_arch) == 0)) {
+            *out_arch = a;
+            *out_branch = b;
+            found = true;
+        }
+        if (g_strcmp0(a, default_arch) == 0) {
+            break;  // can't do better than the default arch
+        }
+    }
+    return found;
+}
+
 void InstallationReader::launch(Dart_Port port, const char* app_id, const char* arch,
                                 const char* branch, const char* commit) {
+    std::string appIdStr = safe_str(app_id);
+    std::string archStr = safe_str(arch);
+    std::string branchStr = safe_str(branch);
+    std::string commitStr = safe_str(commit);
+    asio::post(launch_io_, [this, port, appIdStr, archStr, branchStr, commitStr]() {
+        launch_impl(port, appIdStr.c_str(), archStr.c_str(), branchStr.c_str(), commitStr.c_str());
+    });
+}
+
+void InstallationReader::launch_impl(Dart_Port port, const char* app_id, const char* arch,
+                                     const char* branch, const char* commit) {
     const char* use_arch = (arch && *arch) ? arch : nullptr;
     const char* use_branch = (branch && *branch) ? branch : nullptr;
     const char* use_commit = (commit && *commit) ? commit : nullptr;
 
-    g_autofree char* resolved_arch = nullptr;
-    g_autofree char* resolved_branch = nullptr;
+    std::string resolved_arch;
+    std::string resolved_branch;
     if (!use_arch || !use_branch) {
-        g_autoptr(GError) lerr = nullptr;
-        g_autoptr(GPtrArray) refs =
-            flatpak_installation_list_installed_refs(installation_, nullptr, &lerr);
-        if (refs) {
-            for (guint i = 0; i < refs->len; i++) {
-                auto* iref = static_cast<FlatpakInstalledRef*>(refs->pdata[i]);
-                if (flatpak_ref_get_kind(FLATPAK_REF(iref)) != FLATPAK_REF_KIND_APP) {
-                    continue;
-                }
-                if (g_strcmp0(flatpak_ref_get_name(FLATPAK_REF(iref)), app_id) != 0) {
-                    continue;
-                }
-                const char* a = flatpak_ref_get_arch(FLATPAK_REF(iref));
-                if (use_arch && g_strcmp0(a, use_arch) != 0) {
-                    continue;  // honour a caller-supplied arch filter
-                }
-                resolved_arch = g_strdup(a);
-                resolved_branch = g_strdup(flatpak_ref_get_branch(FLATPAK_REF(iref)));
-                break;
-            }
-        }
-        if (!resolved_branch) {
+        if (!resolve_launch_target(installation_, app_id, use_arch, use_branch, &resolved_arch,
+                                   &resolved_branch)) {
             post_error(port, "app not installed");
             return;
         }
         if (!use_arch) {
-            use_arch = resolved_arch;
+            use_arch = resolved_arch.c_str();
         }
         if (!use_branch) {
-            use_branch = resolved_branch;
+            use_branch = resolved_branch.c_str();
         }
     }
 
@@ -371,7 +425,11 @@ void InstallationReader::launch(Dart_Port port, const char* app_id, const char* 
                                                    app_id, use_arch, use_branch, use_commit,
                                                    &instance, nullptr, &err);
     if (!ok) {
-        post_launch_error(port, err ? err->message : "launch failed");
+        if (err && err->domain == FLATPAK_ERROR && err->code == FLATPAK_ERROR_NOT_INSTALLED) {
+            post_error(port, err->message);
+        } else {
+            post_launch_error(port, err ? err->message : "launch failed");
+        }
         return;
     }
 
@@ -394,23 +452,32 @@ void InstallationReader::launch(Dart_Port port, const char* app_id, const char* 
     post_sentinel(port);
 }
 
-// Grace period + SIGKILL escalation for stop(), on a detached background thread
+// pidfd-based signalling: a pidfd refers to the exact process instance it was opened for, so we can
+// send signals to it even if the PID has been recycled.
+static int pidfd_open_compat(pid_t pid) {
+    return static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+}
+
+static int pidfd_send_signal_compat(int pidfd, int sig) {
+    return static_cast<int>(syscall(SYS_pidfd_send_signal, pidfd, sig, nullptr, 0));
+}
+
+// Grace period + SIGKILL escalation for stop(), on a detached background thread. We don't want to
+// block the Dart thread waiting for the app to exit, and we don't want to leave a stray process if
+// it ignores SIGTERM.
 static gpointer stop_escalate_thread(gpointer data) {
-    auto pid = static_cast<pid_t>(GPOINTER_TO_INT(data));
-    for (int k = 0; k < 15; k++) {  // ~1.5s grace period
-        if (kill(pid, 0) != 0) {
-            return nullptr;  // already exited
-        }
-        usleep(100000);  // 100ms
+    auto pidfd = GPOINTER_TO_INT(data);
+    struct pollfd pfd = {.fd = pidfd, .events = POLLIN, .revents = 0};
+    int ret = poll(&pfd, 1, 1500);  // ~1.5s grace period
+    if (ret == 0) {
+        pidfd_send_signal_compat(pidfd, SIGKILL);
     }
-    if (kill(pid, 0) == 0) {
-        kill(pid, SIGKILL);
-    }
+    close(pidfd);
     return nullptr;
 }
 
-static void stop_escalate_async(pid_t pid) {
-    GThread* t = g_thread_new("flatpak-stop", stop_escalate_thread, GINT_TO_POINTER(pid));
+static void stop_escalate_async(int pidfd) {
+    GThread* t = g_thread_new("flatpak-stop", stop_escalate_thread, GINT_TO_POINTER(pidfd));
     g_thread_unref(t);
 }
 
@@ -424,12 +491,16 @@ void InstallationReader::stop(Dart_Port port, const char* app_id) {
                 continue;
             }
             int child_pid = flatpak_instance_get_child_pid(inst);
-            if (child_pid <= 0 || kill(child_pid, 0) != 0) {
-                continue;  // no live app process for this instance
+            if (child_pid <= 0) {
+                continue;
+            }
+            int pidfd = pidfd_open_compat(child_pid);
+            if (pidfd < 0) {
+                continue;  // ESRCH: no live app process for this instance
             }
             found = true;
-            kill(child_pid, SIGTERM);
-            stop_escalate_async(child_pid);
+            pidfd_send_signal_compat(pidfd, SIGTERM);
+            stop_escalate_async(pidfd);  // thread takes ownership, closes it
         }
     }
     if (!found) {

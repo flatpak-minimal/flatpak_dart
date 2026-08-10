@@ -16,6 +16,9 @@ void main(List<String> args) async {
       return;
     }
 
+    final clearDefine = input.userDefines['clear_ambient_flags'];
+    final clearAmbientFlags = clearDefine == true || clearDefine == 'true';
+
     final nativeDir = input.packageRoot.resolve('native/').toFilePath();
     final buildDir =
         input.outputDirectory.resolve('native_build/').toFilePath();
@@ -32,10 +35,14 @@ void main(List<String> args) async {
         buildDir,
         '-DCMAKE_BUILD_TYPE=Release',
         if (hasNinja) ...['-G', 'Ninja'],
-      ]);
+      ], clearAmbientFlags: clearAmbientFlags);
     }
 
-    await _run('cmake', ['--build', buildDir, '--parallel']);
+    await _run('cmake', [
+      '--build',
+      buildDir,
+      '--parallel',
+    ], clearAmbientFlags: clearAmbientFlags);
 
     final libFile = File('${buildDir}libflatpak_nc.so');
     if (!libFile.existsSync()) {
@@ -75,12 +82,16 @@ void main(List<String> args) async {
 
 const _clearedFlagVars = {'CFLAGS': '', 'CXXFLAGS': '', 'LDFLAGS': ''};
 
-Future<void> _run(String exe, List<String> args) async {
+Future<void> _run(
+  String exe,
+  List<String> args, {
+  required bool clearAmbientFlags,
+}) async {
   final p = await Process.start(
     exe,
     args,
     mode: ProcessStartMode.inheritStdio,
-    environment: _clearedFlagVars,
+    environment: clearAmbientFlags ? _clearedFlagVars : null,
   );
   final code = await p.exitCode;
   if (code != 0) {

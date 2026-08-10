@@ -34,7 +34,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build \
             clang-19 clang-tidy-19 clang-format-19 \
-            libflatpak-dev libglib2.0-dev \
+            libflatpak-dev libglib2.0-dev libasio-dev \
             libgtest-dev gcovr
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
@@ -65,7 +65,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build clang-19 \
-            libflatpak-dev libglib2.0-dev libgtest-dev
+            libflatpak-dev libglib2.0-dev libasio-dev libgtest-dev
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub get
@@ -93,7 +93,7 @@ jobs:
           dnf install -y \
             git cmake ninja-build \
             clang clang-tools-extra \
-            flatpak-devel glib2-devel \
+            flatpak-devel glib2-devel asio-devel \
             gtest-devel unzip curl
       - uses: actions/checkout@v4
       - name: Install Dart SDK
@@ -126,7 +126,7 @@ jobs:
           dnf install -y \
             git cmake ninja-build \
             clang clang-tools-extra \
-            flatpak-devel glib2-devel \
+            flatpak-devel glib2-devel asio-devel \
             gtest-devel unzip curl
       - uses: actions/checkout@v4
       - name: Install Dart SDK (arm64)
@@ -156,7 +156,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build clang-19 libclang-rt-19-dev \
-            libflatpak-dev libglib2.0-dev libgtest-dev
+            libflatpak-dev libglib2.0-dev libasio-dev libgtest-dev
       - run: ./scripts/asan.sh build-asan
 
   # ── Coverage (PR only) ───────────────────────────────────────────────
@@ -177,7 +177,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc g++ \
-            libflatpak-dev libglib2.0-dev \
+            libflatpak-dev libglib2.0-dev libasio-dev \
             libgtest-dev gcovr
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
