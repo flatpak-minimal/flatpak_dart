@@ -36,18 +36,18 @@ enum RemoteSubset {
 
   /// The string passed to libflatpak / D-Bus. Empty for [none].
   String get apiValue => switch (this) {
-        RemoteSubset.none => '',
-        RemoteSubset.verified => 'verified',
-        RemoteSubset.floss => 'floss',
-        RemoteSubset.verifiedFloss => 'verified_floss',
-      };
+    RemoteSubset.none => '',
+    RemoteSubset.verified => 'verified',
+    RemoteSubset.floss => 'floss',
+    RemoteSubset.verifiedFloss => 'verified_floss',
+  };
 
   static RemoteSubset fromApiValue(String v) => switch (v) {
-        'verified' => RemoteSubset.verified,
-        'floss' => RemoteSubset.floss,
-        'verified_floss' => RemoteSubset.verifiedFloss,
-        _ => RemoteSubset.none,
-      };
+    'verified' => RemoteSubset.verified,
+    'floss' => RemoteSubset.floss,
+    'verified_floss' => RemoteSubset.verifiedFloss,
+    _ => RemoteSubset.none,
+  };
 }
 
 /// A configured Flatpak remote as returned by [FlatpakRemoteManager.list]
@@ -103,7 +103,8 @@ class FlatpakRemote {
   bool get isStatic => remoteType == RemoteType.static_;
 
   @override
-  String toString() => 'FlatpakRemote($name  $url'
+  String toString() =>
+      'FlatpakRemote($name  $url'
       '${subset != RemoteSubset.none ? "  subset=${subset.apiValue}" : ""}'
       '${disabled ? "  [disabled]" : ""}'
       '${isStatic ? "  [static]" : ""})';
@@ -116,7 +117,8 @@ class FlatpakRemote {
 ///
 /// For modify operations, only non-null fields are applied.
 class FlatpakRemoteConfig {
-  /// Remote URL. Required for [add]; optional for [modify].
+  /// Remote URL. Required for [FlatpakRemoteManager.add]; optional for
+  /// [FlatpakRemoteManager.modify].
   final String? url;
   final String? title;
   final String? comment;

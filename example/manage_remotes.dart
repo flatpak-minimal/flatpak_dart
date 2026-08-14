@@ -10,8 +10,9 @@ Future<void> main() async {
   // ── Step 1: list current remotes ─────────────────────────────────────
   print('\n=== Configured remotes ===');
   for (final r in await remotes.list()) {
-    final subset =
-        r.subset != RemoteSubset.none ? '  [${r.subset.apiValue}]' : '';
+    final subset = r.subset != RemoteSubset.none
+        ? '  [${r.subset.apiValue}]'
+        : '';
     final disabled = r.disabled ? '  [disabled]' : '';
     final static_ = r.isStatic ? '  [static]' : '';
     print('${r.name.padRight(28)} ${r.url}$subset$disabled$static_');
@@ -27,7 +28,9 @@ Future<void> main() async {
   await remotes.add('flathub-floss', KnownRemotes.flathubFloss);
   await remotes.add('flathub-verified', KnownRemotes.flathubVerified);
   await remotes.add(
-      'flathub-verified_floss', KnownRemotes.flathubVerifiedFloss);
+    'flathub-verified_floss',
+    KnownRemotes.flathubVerifiedFloss,
+  );
   await remotes.add('flathub-beta', KnownRemotes.flathubBeta);
   print('Added four Flathub variants.');
 
@@ -39,7 +42,8 @@ Future<void> main() async {
 
   // ── Step 5: revert (uses delete+re-add workaround) ────────────────────
   print(
-      '\n=== Removing subset (none / workaround for missing --subset=all) ===');
+    '\n=== Removing subset (none / workaround for missing --subset=all) ===',
+  );
   await remotes.modifySubset('flathub', RemoteSubset.none);
   print('flathub subset cleared.');
 

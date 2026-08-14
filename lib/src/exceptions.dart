@@ -3,7 +3,7 @@ sealed class FlatpakException implements Exception {
   final String message;
   const FlatpakException(this.message);
   @override
-  String toString() => '${runtimeType}: $message';
+  String toString() => '$runtimeType: $message';
 }
 
 /// The operation failed due to insufficient polkit authorization.

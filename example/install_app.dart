@@ -19,41 +19,37 @@ String get _arch {
 }
 
 String _opChar(String op) => switch (op) {
-      'install' => 'i',
-      'update' => 'u',
-      'uninstall' => 'r',
-      _ => '?',
-    };
+  'install' => 'i',
+  'update' => 'u',
+  'uninstall' => 'r',
+  _ => '?',
+};
 
 String _fmtSize(int n) => n >= 1 << 20
     ? '${(n / (1 << 20)).toStringAsFixed(1)} MB'
     : n >= 1 << 10
-        ? '${(n / (1 << 10)).toStringAsFixed(1)} kB'
-        : '$n B';
+    ? '${(n / (1 << 10)).toStringAsFixed(1)} kB'
+    : '$n B';
 
 Future<void> main(List<String> args) async {
   final client = FlatpakClient.user();
 
   const remote = 'flathub';
   final appId = args.isNotEmpty ? args[0] : 'org.gnome.Calculator';
-  final ref = 'app/$appId/${_arch}/stable';
+  final ref = 'app/$appId/$_arch/stable';
 
   print('Looking for matches\u2026\n');
 
   // Fetch and display permissions before installing
   try {
     final metadata = await client.fetchRemoteMetadata(remote, ref);
-    final context =
-        metadata.where((e) => e.section == 'Context').toList();
+    final context = metadata.where((e) => e.section == 'Context').toList();
     if (context.isNotEmpty) {
       print('$appId permissions:');
       final perms = <String>[];
       for (final e in context) {
         // Values are semicolon-separated lists like "ipc;network;"
-        final items = e.value
-            .split(';')
-            .where((s) => s.isNotEmpty)
-            .toList();
+        final items = e.value.split(';').where((s) => s.isNotEmpty).toList();
         perms.addAll(items);
       }
       print('    ${perms.join('   ')}\n');
@@ -64,8 +60,10 @@ Future<void> main(List<String> args) async {
   }
 
   // Table header
-  print('        ${"ID".padRight(40)} ${"Branch".padRight(12)} '
-      '${"Op".padRight(4)} ${"Remote".padRight(12)} Download');
+  print(
+    '        ${"ID".padRight(40)} ${"Branch".padRight(12)} '
+    '${"Op".padRight(4)} ${"Remote".padRight(12)} Download',
+  );
 
   final tx = client.install(remote, ref);
 
@@ -88,7 +86,8 @@ Future<void> main(List<String> args) async {
     final mark = done ? '\u2713' : ' ';
     final dl = p.bytesTransferred > 0 ? _fmtSize(p.bytesTransferred) : '';
 
-    final line = ' $num. [$mark] ${id.padRight(40)} ${branch.padRight(12)} '
+    final line =
+        ' $num. [$mark] ${id.padRight(40)} ${branch.padRight(12)} '
         '${_opChar(p.op).padRight(4)} ${remote.padRight(12)} $dl';
 
     if (lines[num] != line) {

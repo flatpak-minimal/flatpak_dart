@@ -1,27 +1,27 @@
 name: flatpak_dart
 description: >-
-  Typed Dart API for managing Flatpak applications on Linux.
-  Drives libflatpak directly via C++23 FFI bridge — list, install, update,
-  uninstall, remote management, permissions, and update monitoring.
+  Typed Dart API for managing Flatpak applications on Linux. Drives libflatpak
+  via a C++23 FFI bridge: list, install, update, uninstall, remotes and
+  permissions.
 version: 0.1.0
-repository: https://github.com/jwinarske/flatpak_dart
-issue_tracker: https://github.com/jwinarske/flatpak_dart/issues
-homepage: https://github.com/jwinarske/flatpak_dart
+repository: https://github.com/flatpak-minimal/flatpak_dart
+issue_tracker: https://github.com/flatpak-minimal/flatpak_dart/issues
+homepage: https://github.com/flatpak-minimal/flatpak_dart
 
 platforms:
   linux:
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
-  code_assets: ^0.19.7
+  code_assets: ^1.2.1
   ffi: ^2.1.0
-  hooks: ^0.20.1
+  hooks: ^2.1.0
   path: ^1.9.0
 
 dev_dependencies:
   test: ^1.24.0
-  lints: ^4.0.0
+  lints: ^6.1.0
 
 topics: [linux, flatpak, desktop, ffi, libflatpak]

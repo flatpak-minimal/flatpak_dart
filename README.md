@@ -49,7 +49,7 @@ sudo apt install libflatpak-dev libglib2.0-dev cmake ninja-build clang-19
 
 ```bash
 # Clone
-git clone https://github.com/jwinarske/flatpak_dart.git
+git clone https://github.com/flatpak-minimal/flatpak_dart.git
 cd flatpak_dart
 
 # Build the native library

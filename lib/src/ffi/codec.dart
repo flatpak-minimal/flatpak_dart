@@ -20,8 +20,8 @@ class _BinaryReader {
   int _pos;
 
   _BinaryReader(Uint8List bytes, int offset)
-      : _data = bytes.buffer.asByteData(bytes.offsetInBytes),
-        _pos = offset;
+    : _data = bytes.buffer.asByteData(bytes.offsetInBytes),
+      _pos = offset;
 
   String readString() {
     final len = _data.getUint64(_pos, Endian.little);
@@ -240,10 +240,10 @@ abstract final class GlazeCodec {
   }
 
   static RemoteType _decodeRemoteType(int v) => switch (v) {
-        1 => RemoteType.system,
-        2 => RemoteType.static_,
-        _ => RemoteType.user,
-      };
+    1 => RemoteType.system,
+    2 => RemoteType.static_,
+    _ => RemoteType.user,
+  };
 }
 
 /// Decoded transaction progress data.

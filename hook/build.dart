@@ -25,26 +25,28 @@ void main(List<String> args) async {
 
     // Run CMake configure
     final configResult = await Process.run('cmake', [
-      '-B', buildDirPath,
-      '-S', nativeDir.toFilePath(),
+      '-B',
+      buildDirPath,
+      '-S',
+      nativeDir.toFilePath(),
       '-DCMAKE_BUILD_TYPE=Release',
       if (cxx != null) '-DCMAKE_CXX_COMPILER=$cxx',
       if (cc != null) '-DCMAKE_C_COMPILER=$cc',
     ]);
     if (configResult.exitCode != 0) {
-      throw Exception(
-          'CMake configure failed:\n${configResult.stderr}');
+      throw Exception('CMake configure failed:\n${configResult.stderr}');
     }
 
     // Run CMake build
     final cpuCount = Platform.numberOfProcessors;
     final buildResult = await Process.run('cmake', [
-      '--build', buildDirPath,
-      '--parallel', '$cpuCount',
+      '--build',
+      buildDirPath,
+      '--parallel',
+      '$cpuCount',
     ]);
     if (buildResult.exitCode != 0) {
-      throw Exception(
-          'CMake build failed:\n${buildResult.stderr}');
+      throw Exception('CMake build failed:\n${buildResult.stderr}');
     }
 
     // Add source files as dependencies for rebuild detection
@@ -86,9 +88,7 @@ Future<List<Uri>> _globSources(Uri dir) async {
   await for (final entity in directory.list(recursive: true)) {
     if (entity is File) {
       final path = entity.path;
-      if (path.endsWith('.cpp') ||
-          path.endsWith('.c') ||
-          path.endsWith('.h')) {
+      if (path.endsWith('.cpp') || path.endsWith('.c') || path.endsWith('.h')) {
         files.add(entity.uri);
       }
     }

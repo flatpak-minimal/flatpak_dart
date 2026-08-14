@@ -22,8 +22,7 @@ class FlatpakRemoteManager {
   factory FlatpakRemoteManager.create(
     FlatpakInstallation installation, {
     required bool isSystem,
-  }) =>
-      FlatpakRemoteManager._(installation, isSystem);
+  }) => FlatpakRemoteManager._(installation, isSystem);
 
   // ── Read operations ───────────────────────────────────────────────────
 
@@ -38,12 +37,11 @@ class FlatpakRemoteManager {
     String name, {
     String arch = '',
     bool includeRuntimes = false,
-  }) =>
-      _installation.listRemoteApps(
-        name,
-        arch: arch,
-        includeRuntimes: includeRuntimes,
-      );
+  }) => _installation.listRemoteApps(
+    name,
+    arch: arch,
+    includeRuntimes: includeRuntimes,
+  );
 
   // ── Write operations ───────────────────────────────────────────────────
 

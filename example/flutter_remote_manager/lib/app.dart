@@ -12,12 +12,12 @@ class FlatpakRemoteApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-        create: (_) => RemoteProvider(),
-        child: MaterialApp(
-          title:        'Flatpak Remote Manager',
-          debugShowCheckedModeBanner: false,
-          theme:        AppTheme.dark,
-          home:         const HomeScreen(),
-        ),
-      );
+    create: (_) => RemoteProvider(),
+    child: MaterialApp(
+      title: 'Flatpak Remote Manager',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.dark,
+      home: const HomeScreen(),
+    ),
+  );
 }

@@ -1,6 +1,7 @@
 ## 0.1.0
 
 - Initial release.
+- Requires Dart SDK 3.10.0 or newer, and Linux with libflatpak installed.
 - Typed Dart API for Flatpak management via libflatpak C API.
 - Installation reader: list apps, list remotes, remote info, remote refs, app info, permissions, check updates, fetch remote metadata.
 - Transaction bridge: install, update, uninstall, bundle install with progress streaming and cancellation via serial worker queue.
