@@ -1,5 +1,5 @@
 // install_app.dart — install a Flatpak application with permissions + progress.
-// Run as: FLATPAK_NC_LIB=build-release/libflatpak_nc.so dart run example/install_app.dart [app-id]
+// Run as: dart run example/install_app.dart [app-id]
 //
 // Defaults to org.gnome.Calculator from flathub (user installation).
 

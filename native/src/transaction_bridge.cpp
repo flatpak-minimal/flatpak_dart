@@ -8,48 +8,26 @@
 #include <cstring>
 
 #include "flatpak_bridge.h"
+#include "flatpak_post.h"
 
 // ── Post helpers ────────────────────────────────────────────────────────────
 
 namespace {
 
-// Post a typed data message to Dart. Uses kTypedData (data is copied by the VM).
-void post_bytes(Dart_Port port, const uint8_t* data, size_t len) {
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kTypedData;
-    obj.value.as_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_typed_data.length = static_cast<intptr_t>(len);
-    obj.value.as_typed_data.values = const_cast<uint8_t*>(data);
-    Dart_PostCObject_DL(port, &obj);
-}
-
-void post_glaze_bytes(Dart_Port port, uint8_t discriminator, const uint8_t* data, size_t len) {
-    std::vector<uint8_t> buf(1 + len);
-    buf[0] = discriminator;
-    if (len > 0) {
-        std::memcpy(buf.data() + 1, data, len);
-    }
-    post_bytes(port, buf.data(), buf.size());
-}
-
 template <typename T>
 void post_glaze(Dart_Port port, uint8_t discriminator, const T& value) {
     auto payload = glz::write_binary(value);
-    post_glaze_bytes(port, discriminator, payload.data(), payload.size());
+    flatpak_nc::post_framed(port, discriminator, reinterpret_cast<const uint8_t*>(payload.data()),
+                            payload.size());
 }
 
 void post_sentinel(Dart_Port port) {
-    uint8_t buf[1] = {0x01};
-    post_bytes(port, buf, 1);
+    const uint8_t buf[1] = {0x01};
+    flatpak_nc::post_copy(port, buf, 1);
 }
 
 void post_error(Dart_Port port, const char* msg) {
-    auto len = static_cast<uint32_t>(std::strlen(msg));
-    std::vector<uint8_t> buf(1 + sizeof(uint32_t) + len);
-    buf[0] = 0x02;
-    std::memcpy(buf.data() + 1, &len, sizeof(uint32_t));
-    std::memcpy(buf.data() + 1 + sizeof(uint32_t), msg, len);
-    post_bytes(port, buf.data(), buf.size());
+    flatpak_nc::post_framed_error(port, 0x02, msg);
 }
 
 const char* op_kind_str(FlatpakTransactionOperationType type) {

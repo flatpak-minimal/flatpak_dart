@@ -1,5 +1,5 @@
 // uninstall_app.dart — uninstall a Flatpak application.
-// Run as: FLATPAK_NC_LIB=build-release/libflatpak_nc.so dart run example/uninstall_app.dart <app-id>
+// Run as: dart run example/uninstall_app.dart <app-id>
 //
 // Example:
 //   dart run example/uninstall_app.dart org.gnome.Calculator

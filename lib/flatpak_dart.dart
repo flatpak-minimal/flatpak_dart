@@ -1,7 +1,8 @@
 /// Typed Dart API for managing Flatpak applications on Linux.
 ///
-/// Uses native_comms + libflatpak C API for zero-copy integration.
-/// No D-Bus client library required.
+/// Calls into the libflatpak C API through a C++23 bridge. Results are
+/// delivered to Dart as binary messages whose buffers are handed to the VM
+/// without a copy on send. No D-Bus client library required.
 library;
 
 export 'src/application.dart';

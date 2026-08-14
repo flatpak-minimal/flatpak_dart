@@ -3,7 +3,7 @@ description: >-
   Typed Dart API for managing Flatpak applications on Linux. Drives libflatpak
   via a C++23 FFI bridge: list, install, update, uninstall, remotes and
   permissions.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/flatpak-minimal/flatpak_dart
 issue_tracker: https://github.com/flatpak-minimal/flatpak_dart/issues
 homepage: https://github.com/flatpak-minimal/flatpak_dart
