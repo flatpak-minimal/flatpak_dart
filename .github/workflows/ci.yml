@@ -173,6 +173,12 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [build-ubuntu-x64]
     if: github.event_name == 'pull_request'
+    # lcov-reporter-action posts its summary as a PR comment, which the
+    # default read-only GITHUB_TOKEN cannot do.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - run: |
