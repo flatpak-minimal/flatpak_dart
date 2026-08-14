@@ -10,6 +10,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <string>
 
@@ -63,7 +65,7 @@ InstallationReader::InstallationReader(FlatpakInstallation* inst)
 }
 
 InstallationReader::~InstallationReader() {
-    launch_io_.stop();
+    launch_work_guard_.reset();
     if (launch_thread_.joinable()) {
         launch_thread_.join();
     }
@@ -468,7 +470,22 @@ static int pidfd_send_signal_compat(int pidfd, int sig) {
 static gpointer stop_escalate_thread(gpointer data) {
     auto pidfd = GPOINTER_TO_INT(data);
     struct pollfd pfd = {.fd = pidfd, .events = POLLIN, .revents = 0};
-    int ret = poll(&pfd, 1, 1500);  // ~1.5s grace period
+    constexpr int kGraceMs = 1500;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kGraceMs);
+    int ret = 0;
+    for (;;) {
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        int timeout_ms = remaining.count() > 0 ? static_cast<int>(remaining.count()) : 0;
+        pfd.revents = 0;
+        ret = poll(&pfd, 1, timeout_ms);
+        if (ret >= 0 || errno != EINTR) {
+            break;
+        }
+        if (timeout_ms == 0) {
+            break;
+        }
+    }
     if (ret == 0) {
         pidfd_send_signal_compat(pidfd, SIGKILL);
     }
@@ -496,7 +513,12 @@ void InstallationReader::stop(Dart_Port port, const char* app_id) {
             }
             int pidfd = pidfd_open_compat(child_pid);
             if (pidfd < 0) {
-                continue;  // ESRCH: no live app process for this instance
+                if (errno != ESRCH) {
+                    if (kill(child_pid, SIGTERM) == 0) {
+                        found = true;
+                    }
+                }
+                continue;
             }
             found = true;
             pidfd_send_signal_compat(pidfd, SIGTERM);
