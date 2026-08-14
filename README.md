@@ -47,19 +47,21 @@ sudo apt install libflatpak-dev libglib2.0-dev cmake ninja-build clang-19
 
 ## Quick start
 
+Add the package and run. The native library is built automatically by the
+build hook the first time you run, so there is nothing to compile by hand:
+
 ```bash
-# Clone
+dart pub add flatpak_dart
+dart run example/example.dart
+```
+
+Working on the package itself:
+
+```bash
 git clone https://github.com/flatpak-minimal/flatpak_dart.git
 cd flatpak_dart
-
-# Build the native library
-./scripts/build_release.sh
-
-# Install Dart dependencies
 dart pub get
-
-# Run an example
-FLATPAK_NC_LIB=build-release/libflatpak_nc.so dart run example/example.dart
+dart run example/example.dart
 ```
 
 ## Usage
@@ -170,8 +172,9 @@ The package includes a C++23 shared library that bridges Dart FFI to libflatpak.
 ./scripts/coverage.sh
 ```
 
-Set `FLATPAK_NC_LIB` to the path of `libflatpak_nc.so`, or place it in one
-of the auto-detected paths (`build-release/`, `build/`, etc.).
+These scripts build into their own directories for sanitizer and coverage
+runs. They do not affect `dart run`, which always uses the library produced
+by the build hook.
 
 ## Flutter example
 
@@ -180,7 +183,7 @@ A full Flutter Linux desktop app is included in `example/flutter_remote_manager/
 ```bash
 cd example/flutter_remote_manager
 flutter pub get
-FLATPAK_NC_LIB=../../build-release/libflatpak_nc.so flutter run -d linux
+flutter run -d linux
 ```
 
 ## Platform support

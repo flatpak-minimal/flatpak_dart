@@ -1,5 +1,8 @@
 // C ABI exported to Dart FFI.  All handles are opaque void*.
-// All results delivered via Dart_PostCObject_DL (kExternalTypedData).
+// All results delivered via Dart_PostCObject_DL. Framed payloads use
+// kExternalTypedData, so the buffer is handed to the VM rather than copied;
+// the one-byte sentinels use kTypedData, where a copy is cheaper than a heap
+// allocation plus finalizer. See flatpak_post.h.
 // Message discriminator byte at offset 0:
 //   0x01 = success / list-end sentinel
 //   0x02 = error (UTF-8, uint32_t length-prefix)

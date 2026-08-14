@@ -50,8 +50,6 @@ jobs:
       - name: C++ tests
         run: ctest --test-dir build/test --output-on-failure -j4
       - name: Dart tests
-        env:
-          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
         run: dart test --reporter=expanded
       - name: clang-tidy-19
         run: ./scripts/clang_tidy.sh build
@@ -81,8 +79,6 @@ jobs:
           cmake --build build --parallel
           ctest --test-dir build/test --output-on-failure -j4
       - name: Dart tests
-        env:
-          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
         run: dart test
 
   # ── Fedora 41 x86_64 (container) ─────────────────────────────────────
@@ -116,8 +112,6 @@ jobs:
           cmake --build build --parallel
           ctest --test-dir build/test --output-on-failure -j4
       - name: Dart tests
-        env:
-          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
         run: dart test
 
   # ── Fedora 41 arm64 (container on arm runner) ─────────────────────────
@@ -150,8 +144,6 @@ jobs:
           cmake --build build --parallel
           ctest --test-dir build/test --output-on-failure -j4
       - name: Dart tests
-        env:
-          FLATPAK_NC_LIB: ${{ github.workspace }}/build/libflatpak_nc.so
         run: dart test
 
   # ── ASAN + UBSan ─────────────────────────────────────────────────────

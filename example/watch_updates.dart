@@ -1,5 +1,5 @@
 // watch_updates.dart — monitor for install/uninstall changes.
-// Run as: FLATPAK_NC_LIB=build-release/libflatpak_nc.so dart run example/watch_updates.dart
+// Run as: dart run example/watch_updates.dart
 //
 // Uses GFileMonitor (inotify) on the installation directory. Detects
 // which apps were added or removed by diffing the app list on each change.

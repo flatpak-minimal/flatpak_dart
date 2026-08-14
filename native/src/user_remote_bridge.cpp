@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "flatpak_bridge.h"
+#include "flatpak_post.h"
 #include "flatpak_types.h"
 
 // ── Helpers (shared with installation_reader.cpp) ───────────────────────────
@@ -21,27 +22,13 @@ extern void post_error_to(Dart_Port port, const char* msg);
 // Local post helpers (self-contained for this translation unit).
 namespace {
 
-void post_bytes(Dart_Port port, const uint8_t* data, size_t len) {
-    Dart_CObject obj;
-    obj.type = Dart_CObject_kTypedData;
-    obj.value.as_typed_data.type = Dart_TypedData_kUint8;
-    obj.value.as_typed_data.length = static_cast<intptr_t>(len);
-    obj.value.as_typed_data.values = const_cast<uint8_t*>(data);
-    Dart_PostCObject_DL(port, &obj);
-}
-
 void post_ok(Dart_Port port) {
-    uint8_t buf[1] = {0x01};
-    post_bytes(port, buf, 1);
+    const uint8_t buf[1] = {0x01};
+    flatpak_nc::post_copy(port, buf, 1);
 }
 
 void post_error(Dart_Port port, const char* msg) {
-    auto len = static_cast<uint32_t>(std::strlen(msg));
-    std::vector<uint8_t> buf(1 + sizeof(uint32_t) + len);
-    buf[0] = 0x02;
-    std::memcpy(buf.data() + 1, &len, sizeof(uint32_t));
-    std::memcpy(buf.data() + 1 + sizeof(uint32_t), msg, len);
-    post_bytes(port, buf.data(), buf.size());
+    flatpak_nc::post_framed_error(port, 0x02, msg);
 }
 
 // ── Apply RemoteConfig fields to a FlatpakRemote GObject ────────────────

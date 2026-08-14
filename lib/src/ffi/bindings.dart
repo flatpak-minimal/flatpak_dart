@@ -1,158 +1,300 @@
-// lookupFunction wrappers for the flatpak_nc shared library.
+// Bindings to the flatpak_nc shared library.
+//
+// The library is declared as a native asset by hook/build.dart, which emits it
+// under the asset id named in @DefaultAsset below. The VM resolves the symbols
+// through that asset, so a consumer does not have to locate or build the
+// library themselves.
+
+@DefaultAsset('package:flatpak_dart/libflatpak_nc.so')
+library;
 
 import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import '../internal/library_loader.dart';
+// ── Bridge initialization ───────────────────────────────────────────────────
 
-// Typedefs for C function signatures.
-typedef _InitC = Void Function(Pointer<Void>);
-typedef _InitDart = void Function(Pointer<Void>);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_bridge_init')
+external void _bridgeInit(Pointer<Void> dartApiDlData);
 
-typedef _ReaderCreateC = Pointer<Void> Function(Pointer<Utf8>);
-typedef _ReaderCreateDart = Pointer<Void> Function(Pointer<Utf8>);
+// ── Reader ──────────────────────────────────────────────────────────────────
 
-typedef _ReaderDestroyC = Void Function(Pointer<Void>);
-typedef _ReaderDestroyDart = void Function(Pointer<Void>);
+@Native<Pointer<Void> Function(Pointer<Utf8>)>(symbol: 'flatpak_reader_create')
+external Pointer<Void> _readerCreate(Pointer<Utf8> installation);
 
-typedef _ReaderListAppsC = Void Function(Pointer<Void>, Int64, Bool);
-typedef _ReaderListAppsDart = void Function(Pointer<Void>, int, bool);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_reader_destroy')
+external void _readerDestroy(Pointer<Void> handle);
 
-typedef _ReaderPortC = Void Function(Pointer<Void>, Int64);
-typedef _ReaderPortDart = void Function(Pointer<Void>, int);
+@Native<Void Function(Pointer<Void>, Int64, Bool)>(
+  symbol: 'flatpak_reader_list_apps',
+)
+external void _readerListApps(
+  Pointer<Void> handle,
+  int port,
+  bool includeRuntimes,
+);
 
-typedef _ReaderPortStringC = Void Function(Pointer<Void>, Int64, Pointer<Utf8>);
-typedef _ReaderPortStringDart =
-    void Function(Pointer<Void>, int, Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_list_remotes',
+)
+external void _readerListRemotes(Pointer<Void> handle, int port);
 
-typedef _ReaderListRemoteAppsC =
-    Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool);
-typedef _ReaderListRemoteAppsDart =
-    void Function(Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, bool);
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_get_remote_info',
+)
+external void _readerGetRemoteInfo(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> name,
+);
 
-typedef _ReaderGetAppInfoC =
-    Void Function(
-      Pointer<Void>,
-      Int64,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-    );
-typedef _ReaderGetAppInfoDart =
-    void Function(
-      Pointer<Void>,
-      int,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-    );
+@Native<
+  Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool)
+>(symbol: 'flatpak_reader_list_remote_apps')
+external void _readerListRemoteApps(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> name,
+  Pointer<Utf8> arch,
+  bool includeRuntimes,
+);
 
-typedef _ReaderFetchMetadataC =
-    Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>);
-typedef _ReaderFetchMetadataDart =
-    void Function(Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>);
+@Native<
+  Void Function(
+    Pointer<Void>,
+    Int64,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+  )
+>(symbol: 'flatpak_reader_get_app_info')
+external void _readerGetAppInfo(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> appId,
+  Pointer<Utf8> arch,
+  Pointer<Utf8> branch,
+);
 
-// Worker typedefs
-typedef _WorkerCreateC = Pointer<Void> Function(Pointer<Utf8>);
-typedef _WorkerCreateDart = Pointer<Void> Function(Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_get_permissions',
+)
+external void _readerGetPermissions(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> appId,
+);
 
-typedef _TxCreateC = Pointer<Void> Function(Pointer<Void>, Int64);
-typedef _TxCreateDart = Pointer<Void> Function(Pointer<Void>, int);
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_check_updates',
+)
+external void _readerCheckUpdates(Pointer<Void> handle, int port);
 
-typedef _TxAddInstallC =
-    Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _TxAddInstallDart =
-    void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_reader_drop_caches')
+external void _readerDropCaches(Pointer<Void> handle);
 
-typedef _TxAddStringC = Void Function(Pointer<Void>, Pointer<Utf8>);
-typedef _TxAddStringDart = void Function(Pointer<Void>, Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_fetch_remote_metadata',
+)
+external void _readerFetchRemoteMetadata(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> remote,
+  Pointer<Utf8> ref,
+);
 
-typedef _TxSubmitC = Void Function(Pointer<Void>);
-typedef _TxSubmitDart = void Function(Pointer<Void>);
+// ── Worker ──────────────────────────────────────────────────────────────────
 
-// Remote management typedefs
-typedef _RemoteCreateC = Pointer<Void> Function(Int64);
-typedef _RemoteCreateDart = Pointer<Void> Function(int);
+@Native<Pointer<Void> Function(Pointer<Utf8>)>(symbol: 'flatpak_worker_create')
+external Pointer<Void> _workerCreate(Pointer<Utf8> installation);
 
-typedef _RemoteAddC =
-    Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64, Bool);
-typedef _RemoteAddDart =
-    void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, int, bool);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_worker_destroy')
+external void _workerDestroy(Pointer<Void> handle);
 
-typedef _RemoteAddFromFileC =
-    Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool);
-typedef _RemoteAddFromFileDart =
-    void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, bool);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_worker_cancel_current')
+external void _workerCancelCurrent(Pointer<Void> handle);
 
-typedef _RemoteModifyC =
-    Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64);
-typedef _RemoteModifyDart =
-    void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, int);
+// ── Transaction ─────────────────────────────────────────────────────────────
 
-typedef _RemoteRemoveC = Void Function(Pointer<Void>, Pointer<Utf8>, Bool);
-typedef _RemoteRemoveDart = void Function(Pointer<Void>, Pointer<Utf8>, bool);
+@Native<Pointer<Void> Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_tx_create',
+)
+external Pointer<Void> _txCreate(Pointer<Void> worker, int port);
 
-typedef _RemoteUpdateC = Void Function(Pointer<Void>, Pointer<Utf8>);
-typedef _RemoteUpdateDart = void Function(Pointer<Void>, Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_tx_destroy')
+external void _txDestroy(Pointer<Void> handle);
 
-// Monitor typedefs
-typedef _MonitorCreateC = Pointer<Void> Function(Int64, Pointer<Utf8>);
-typedef _MonitorCreateDart = Pointer<Void> Function(int, Pointer<Utf8>);
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)>(
+  symbol: 'flatpak_tx_add_install',
+)
+external void _txAddInstall(
+  Pointer<Void> handle,
+  Pointer<Utf8> remote,
+  Pointer<Utf8> ref,
+);
 
-/// Lazy bindings to the flatpak_nc shared library.
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>)>(
+  symbol: 'flatpak_tx_add_update',
+)
+external void _txAddUpdate(Pointer<Void> handle, Pointer<Utf8> ref);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>)>(
+  symbol: 'flatpak_tx_add_uninstall',
+)
+external void _txAddUninstall(Pointer<Void> handle, Pointer<Utf8> ref);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>)>(
+  symbol: 'flatpak_tx_add_install_bundle',
+)
+external void _txAddInstallBundle(Pointer<Void> handle, Pointer<Utf8> path);
+
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_tx_submit')
+external void _txSubmit(Pointer<Void> handle);
+
+// ── User remote management ──────────────────────────────────────────────────
+
+@Native<Pointer<Void> Function(Int64)>(symbol: 'flatpak_user_remote_create')
+external Pointer<Void> _userRemoteCreate(int port);
+
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_user_remote_destroy')
+external void _userRemoteDestroy(Pointer<Void> handle);
+
+@Native<
+  Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64, Bool)
+>(symbol: 'flatpak_user_remote_add')
+external void _userRemoteAdd(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Uint8> config,
+  int length,
+  bool ifNotExists,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool)>(
+  symbol: 'flatpak_user_remote_add_from_file',
+)
+external void _userRemoteAddFromFile(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Utf8> path,
+  bool ifNotExists,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64)>(
+  symbol: 'flatpak_user_remote_modify',
+)
+external void _userRemoteModify(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Uint8> changes,
+  int length,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Bool)>(
+  symbol: 'flatpak_user_remote_remove',
+)
+external void _userRemoteRemove(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  bool force,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>)>(
+  symbol: 'flatpak_user_remote_update',
+)
+external void _userRemoteUpdate(Pointer<Void> handle, Pointer<Utf8> name);
+
+// ── System remote management ────────────────────────────────────────────────
+
+@Native<Pointer<Void> Function(Int64)>(symbol: 'flatpak_system_remote_create')
+external Pointer<Void> _systemRemoteCreate(int port);
+
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_system_remote_destroy')
+external void _systemRemoteDestroy(Pointer<Void> handle);
+
+@Native<
+  Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64, Bool)
+>(symbol: 'flatpak_system_remote_add')
+external void _systemRemoteAdd(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Uint8> config,
+  int length,
+  bool ifNotExists,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool)>(
+  symbol: 'flatpak_system_remote_add_from_file',
+)
+external void _systemRemoteAddFromFile(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Utf8> path,
+  bool ifNotExists,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int64)>(
+  symbol: 'flatpak_system_remote_modify',
+)
+external void _systemRemoteModify(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  Pointer<Uint8> changes,
+  int length,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>, Bool)>(
+  symbol: 'flatpak_system_remote_remove',
+)
+external void _systemRemoteRemove(
+  Pointer<Void> handle,
+  Pointer<Utf8> name,
+  bool force,
+);
+
+@Native<Void Function(Pointer<Void>, Pointer<Utf8>)>(
+  symbol: 'flatpak_system_remote_update',
+)
+external void _systemRemoteUpdate(Pointer<Void> handle, Pointer<Utf8> name);
+
+// ── Monitor ─────────────────────────────────────────────────────────────────
+
+@Native<Pointer<Void> Function(Int64, Pointer<Utf8>)>(
+  symbol: 'flatpak_monitor_create',
+)
+external Pointer<Void> _monitorCreate(int port, Pointer<Utf8> installation);
+
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_monitor_close')
+external void _monitorClose(Pointer<Void> handle);
+
+@Native<Void Function(Pointer<Void>)>(symbol: 'flatpak_monitor_destroy')
+external void _monitorDestroy(Pointer<Void> handle);
+
+/// Bindings to the flatpak_nc shared library.
 abstract final class FlatpakBindings {
-  static final DynamicLibrary _lib = _loadAndInit();
+  /// Wires up the Dart DL API so the C++ side can call Dart_PostCObject_DL
+  /// from any thread. Runs once, on first access.
+  ///
+  /// Symbol resolution used to funnel through a lazily initialized
+  /// DynamicLibrary whose initializer called this, which made the ordering
+  /// implicit. @Native symbols resolve independently, so the ordering is
+  /// enforced here instead: every handle originates from one of the create
+  /// functions below, and each of those initializes first.
+  static final bool _initialized = () {
+    _bridgeInit(NativeApi.initializeApiDLData);
+    return true;
+  }();
 
-  static DynamicLibrary _loadAndInit() {
-    final lib = LibraryLoader.load();
-    // Initialize Dart DL API pointers so the C++ side can call
-    // Dart_PostCObject_DL from any thread.
-    final init = lib.lookupFunction<_InitC, _InitDart>('flatpak_bridge_init');
-    init(NativeApi.initializeApiDLData);
-    return lib;
+  static void _ensureInitialized() {
+    if (!_initialized) {
+      throw StateError('flatpak_bridge_init did not complete');
+    }
   }
 
   // ── Reader ─────────────────────────────────────────────────────────────
-  static final _readerCreate = _lib
-      .lookupFunction<_ReaderCreateC, _ReaderCreateDart>(
-        'flatpak_reader_create',
-      );
-  static final _readerDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_reader_destroy',
-      );
-  static final _readerListApps = _lib
-      .lookupFunction<_ReaderListAppsC, _ReaderListAppsDart>(
-        'flatpak_reader_list_apps',
-      );
-  static final _readerListRemotes = _lib
-      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
-        'flatpak_reader_list_remotes',
-      );
-  static final _readerGetRemoteInfo = _lib
-      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
-        'flatpak_reader_get_remote_info',
-      );
-  static final _readerListRemoteApps = _lib
-      .lookupFunction<_ReaderListRemoteAppsC, _ReaderListRemoteAppsDart>(
-        'flatpak_reader_list_remote_apps',
-      );
-  static final _readerGetAppInfo = _lib
-      .lookupFunction<_ReaderGetAppInfoC, _ReaderGetAppInfoDart>(
-        'flatpak_reader_get_app_info',
-      );
-  static final _readerGetPermissions = _lib
-      .lookupFunction<_ReaderPortStringC, _ReaderPortStringDart>(
-        'flatpak_reader_get_permissions',
-      );
-  static final _readerCheckUpdates = _lib
-      .lookupFunction<_ReaderPortC, _ReaderPortDart>(
-        'flatpak_reader_check_updates',
-      );
-
   static Pointer<Void> readerCreate(String installation) {
+    _ensureInitialized();
     final inst = installation.toNativeUtf8();
     try {
       return _readerCreate(inst);
@@ -233,18 +375,8 @@ abstract final class FlatpakBindings {
   static void readerCheckUpdates(Pointer<Void> handle, int port) =>
       _readerCheckUpdates(handle, port);
 
-  static final _readerDropCaches = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_reader_drop_caches',
-      );
-
   static void readerDropCaches(Pointer<Void> handle) =>
       _readerDropCaches(handle);
-
-  static final _readerFetchRemoteMetadata = _lib
-      .lookupFunction<_ReaderFetchMetadataC, _ReaderFetchMetadataDart>(
-        'flatpak_reader_fetch_remote_metadata',
-      );
 
   static void readerFetchRemoteMetadata(
     Pointer<Void> handle,
@@ -263,20 +395,8 @@ abstract final class FlatpakBindings {
   }
 
   // ── Worker ─────────────────────────────────────────────────────────────
-  static final _workerCreate = _lib
-      .lookupFunction<_WorkerCreateC, _WorkerCreateDart>(
-        'flatpak_worker_create',
-      );
-  static final _workerDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_worker_destroy',
-      );
-  static final _workerCancelCurrent = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_worker_cancel_current',
-      );
-
   static Pointer<Void> workerCreate(String installation) {
+    _ensureInitialized();
     final inst = installation.toNativeUtf8();
     try {
       return _workerCreate(inst);
@@ -290,31 +410,6 @@ abstract final class FlatpakBindings {
       _workerCancelCurrent(handle);
 
   // ── Transaction ────────────────────────────────────────────────────────
-  static final _txCreate = _lib.lookupFunction<_TxCreateC, _TxCreateDart>(
-    'flatpak_tx_create',
-  );
-  static final _txDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_tx_destroy',
-      );
-  static final _txAddInstall = _lib
-      .lookupFunction<_TxAddInstallC, _TxAddInstallDart>(
-        'flatpak_tx_add_install',
-      );
-  static final _txAddUpdate = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>('flatpak_tx_add_update');
-  static final _txAddUninstall = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>(
-        'flatpak_tx_add_uninstall',
-      );
-  static final _txAddInstallBundle = _lib
-      .lookupFunction<_TxAddStringC, _TxAddStringDart>(
-        'flatpak_tx_add_install_bundle',
-      );
-  static final _txSubmit = _lib.lookupFunction<_TxSubmitC, _TxSubmitDart>(
-    'flatpak_tx_submit',
-  );
-
   static Pointer<Void> txCreate(Pointer<Void> worker, int port) =>
       _txCreate(worker, port);
   static void txDestroy(Pointer<Void> handle) => _txDestroy(handle);
@@ -360,34 +455,11 @@ abstract final class FlatpakBindings {
   static void txSubmit(Pointer<Void> handle) => _txSubmit(handle);
 
   // ── User remote management ─────────────────────────────────────────────
-  static final _userRemoteCreate = _lib
-      .lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
-        'flatpak_user_remote_create',
-      );
-  static final _userRemoteDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_user_remote_destroy',
-      );
-  static final _userRemoteAdd = _lib
-      .lookupFunction<_RemoteAddC, _RemoteAddDart>('flatpak_user_remote_add');
-  static final _userRemoteAddFromFile = _lib
-      .lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
-        'flatpak_user_remote_add_from_file',
-      );
-  static final _userRemoteModify = _lib
-      .lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
-        'flatpak_user_remote_modify',
-      );
-  static final _userRemoteRemove = _lib
-      .lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
-        'flatpak_user_remote_remove',
-      );
-  static final _userRemoteUpdate = _lib
-      .lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
-        'flatpak_user_remote_update',
-      );
+  static Pointer<Void> userRemoteCreate(int port) {
+    _ensureInitialized();
+    return _userRemoteCreate(port);
+  }
 
-  static Pointer<Void> userRemoteCreate(int port) => _userRemoteCreate(port);
   static void userRemoteDestroy(Pointer<Void> handle) =>
       _userRemoteDestroy(handle);
 
@@ -459,35 +531,11 @@ abstract final class FlatpakBindings {
   }
 
   // ── System remote management ───────────────────────────────────────────
-  static final _systemRemoteCreate = _lib
-      .lookupFunction<_RemoteCreateC, _RemoteCreateDart>(
-        'flatpak_system_remote_create',
-      );
-  static final _systemRemoteDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_system_remote_destroy',
-      );
-  static final _systemRemoteAdd = _lib
-      .lookupFunction<_RemoteAddC, _RemoteAddDart>('flatpak_system_remote_add');
-  static final _systemRemoteAddFromFile = _lib
-      .lookupFunction<_RemoteAddFromFileC, _RemoteAddFromFileDart>(
-        'flatpak_system_remote_add_from_file',
-      );
-  static final _systemRemoteModify = _lib
-      .lookupFunction<_RemoteModifyC, _RemoteModifyDart>(
-        'flatpak_system_remote_modify',
-      );
-  static final _systemRemoteRemove = _lib
-      .lookupFunction<_RemoteRemoveC, _RemoteRemoveDart>(
-        'flatpak_system_remote_remove',
-      );
-  static final _systemRemoteUpdate = _lib
-      .lookupFunction<_RemoteUpdateC, _RemoteUpdateDart>(
-        'flatpak_system_remote_update',
-      );
+  static Pointer<Void> systemRemoteCreate(int port) {
+    _ensureInitialized();
+    return _systemRemoteCreate(port);
+  }
 
-  static Pointer<Void> systemRemoteCreate(int port) =>
-      _systemRemoteCreate(port);
   static void systemRemoteDestroy(Pointer<Void> handle) =>
       _systemRemoteDestroy(handle);
 
@@ -563,20 +611,8 @@ abstract final class FlatpakBindings {
   }
 
   // ── Monitor ────────────────────────────────────────────────────────────
-  static final _monitorCreate = _lib
-      .lookupFunction<_MonitorCreateC, _MonitorCreateDart>(
-        'flatpak_monitor_create',
-      );
-  static final _monitorClose = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_monitor_close',
-      );
-  static final _monitorDestroy = _lib
-      .lookupFunction<_ReaderDestroyC, _ReaderDestroyDart>(
-        'flatpak_monitor_destroy',
-      );
-
   static Pointer<Void> monitorCreate(int port, String installation) {
+    _ensureInitialized();
     final inst = installation.toNativeUtf8();
     try {
       return _monitorCreate(port, inst);

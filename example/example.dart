@@ -4,7 +4,7 @@
 //   ./scripts/build_release.sh
 //
 // Run with:
-//   FLATPAK_NC_LIB=build-release/libflatpak_nc.so dart run example/example.dart
+//   dart run example/example.dart
 //
 // See also: list_apps.dart, install_app.dart, manage_remotes.dart,
 //           watch_updates.dart for more complete examples.

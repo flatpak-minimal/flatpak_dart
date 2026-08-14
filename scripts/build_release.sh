@@ -14,5 +14,5 @@ cmake -B "$BUILD_DIR" "$NATIVE_DIR" \
 cmake --build "$BUILD_DIR" --parallel "$CPU_COUNT"
 echo "=== Built: $BUILD_DIR/libflatpak_nc.so ==="
 echo ""
-echo "Run examples with:"
-echo "  FLATPAK_NC_LIB=$BUILD_DIR/libflatpak_nc.so dart run example/list_apps.dart"
+echo "This build is for sanitizer, coverage and clang-tidy runs."
+echo "dart run builds its own copy through hook/build.dart."
