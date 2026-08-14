@@ -1,3 +1,13 @@
+## 0.1.2
+
+- Widen the `hooks` and `code_assets` constraints to `>=0.20.1 <3.0.0` and
+  `>=0.19.7 <2.0.0`. Pinning them to the 2.x and 1.x majors made the package
+  unresolvable for any Flutter SDK that pins `meta 1.18.0`, because `hooks`
+  2.x requires `meta ^1.19.0`. Both are used only by `hook/build.dart`, which
+  is source compatible across the two API generations, so pub is free to pick
+  whichever the surrounding SDK allows.
+- Align the Flutter example's SDK constraint with the package's `>=3.10.0`.
+
 ## 0.1.1
 
 - Fix the native library failing to load on a fresh install. The build hook
