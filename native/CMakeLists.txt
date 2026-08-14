@@ -48,13 +48,17 @@ set_target_properties(flatpak_nc PROPERTIES
 apply_sanitizers(flatpak_nc)
 apply_clang_tidy(flatpak_nc)
 
+if(ENABLE_COVERAGE)
+    enable_coverage(flatpak_nc)
+endif()
+
 if(BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
 endif()
 
 if(ENABLE_COVERAGE)
-    enable_coverage(flatpak_nc)
+    add_coverage_report()
 endif()
 
 add_clang_format_targets()

@@ -35,7 +35,7 @@ jobs:
             cmake ninja-build \
             clang-19 clang-tidy-19 clang-format-19 \
             libflatpak-dev libglib2.0-dev \
-            libgtest-dev lcov
+            libgtest-dev gcovr
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub get
@@ -94,7 +94,7 @@ jobs:
             git cmake ninja-build \
             clang clang-tools-extra \
             flatpak-devel glib2-devel \
-            gtest-devel lcov unzip curl
+            gtest-devel unzip curl
       - uses: actions/checkout@v4
       - name: Install Dart SDK
         run: |
@@ -178,7 +178,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc g++ \
             libflatpak-dev libglib2.0-dev \
-            libgtest-dev lcov
+            libgtest-dev gcovr
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub global activate coverage

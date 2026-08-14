@@ -53,4 +53,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 License: Apache-2.0
-Source: native_comms package (https://github.com/jwinarske/native_comms)
+Source: Originally written for the native_comms package by the same author;
+        maintained in this repository as native/include/glaze_meta.h.
+
+Note: glaze_meta.h is an independent implementation of a subset of the `glz::`
+API using only C++23 standard library facilities. It is not derived from the
+glaze library (https://github.com/stephenberry/glaze) and carries no code from
+it, so no glaze copyright or license notice applies. The wire format is
+BEVE-Lite, inspired by but not identical to glaze's native binary format.
