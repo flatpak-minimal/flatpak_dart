@@ -1,5 +1,5 @@
 @TestOn('vm')
-library update_monitor_test;
+library;
 
 import 'dart:async';
 

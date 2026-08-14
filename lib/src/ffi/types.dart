@@ -6,13 +6,13 @@ import '../remote.dart';
 
 /// Decode a FlatpakRef from a JSON-like map (glaze binary → Dart map).
 FlatpakRef decodeFlatpakRef(Map<String, dynamic> m) => FlatpakRef(
-      kind: m['kind'] as String? ?? '',
-      name: m['name'] as String? ?? '',
-      arch: m['arch'] as String? ?? '',
-      branch: m['branch'] as String? ?? '',
-      commit: m['commit'] as String? ?? '',
-      collectionId: m['collectionId'] as String? ?? '',
-    );
+  kind: m['kind'] as String? ?? '',
+  name: m['name'] as String? ?? '',
+  arch: m['arch'] as String? ?? '',
+  branch: m['branch'] as String? ?? '',
+  commit: m['commit'] as String? ?? '',
+  collectionId: m['collectionId'] as String? ?? '',
+);
 
 /// Decode an InstalledApp from a JSON-like map.
 FlatpakApplication decodeInstalledApp(Map<String, dynamic> m) =>
@@ -33,25 +33,25 @@ FlatpakApplication decodeInstalledApp(Map<String, dynamic> m) =>
 
 /// Decode a FlatpakRemoteInfo from a JSON-like map.
 FlatpakRemote decodeFlatpakRemote(Map<String, dynamic> m) => FlatpakRemote(
-      name: m['name'] as String? ?? '',
-      url: m['url'] as String? ?? '',
-      title: m['title'] as String? ?? '',
-      comment: m['comment'] as String? ?? '',
-      description: m['description'] as String? ?? '',
-      homepage: m['homepage'] as String? ?? '',
-      defaultBranch: m['defaultBranch'] as String? ?? '',
-      subset: RemoteSubset.fromApiValue(m['subset'] as String? ?? ''),
-      collectionId: m['collectionId'] as String? ?? '',
-      filter: m['filter'] as String? ?? '',
-      remoteType: _decodeRemoteType(m['remoteType'] as int? ?? 0),
-      disabled: m['disabled'] as bool? ?? false,
-      gpgVerify: m['gpgVerify'] as bool? ?? true,
-      noDeps: m['noDeps'] as bool? ?? false,
-      priority: m['priority'] as int? ?? 1,
-    );
+  name: m['name'] as String? ?? '',
+  url: m['url'] as String? ?? '',
+  title: m['title'] as String? ?? '',
+  comment: m['comment'] as String? ?? '',
+  description: m['description'] as String? ?? '',
+  homepage: m['homepage'] as String? ?? '',
+  defaultBranch: m['defaultBranch'] as String? ?? '',
+  subset: RemoteSubset.fromApiValue(m['subset'] as String? ?? ''),
+  collectionId: m['collectionId'] as String? ?? '',
+  filter: m['filter'] as String? ?? '',
+  remoteType: _decodeRemoteType(m['remoteType'] as int? ?? 0),
+  disabled: m['disabled'] as bool? ?? false,
+  gpgVerify: m['gpgVerify'] as bool? ?? true,
+  noDeps: m['noDeps'] as bool? ?? false,
+  priority: m['priority'] as int? ?? 1,
+);
 
 RemoteType _decodeRemoteType(int v) => switch (v) {
-      1 => RemoteType.system,
-      2 => RemoteType.static_,
-      _ => RemoteType.user,
-    };
+  1 => RemoteType.system,
+  2 => RemoteType.static_,
+  _ => RemoteType.user,
+};

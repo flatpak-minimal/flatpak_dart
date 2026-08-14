@@ -72,53 +72,61 @@ class _AppBar extends StatelessWidget {
       height: 48,
       color: AppTheme.bg1,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(children: [
-        // Terminal-style decorative squares
-        _TrafficLight(),
-        const SizedBox(width: 14),
+      child: Row(
+        children: [
+          // Terminal-style decorative squares
+          _TrafficLight(),
+          const SizedBox(width: 14),
 
-        // Title
-        Text(
-          'Flatpak Remote Manager',
-          style: AppTheme.ui(
-              size: 13, weight: FontWeight.w600, color: AppTheme.fg0),
-        ),
-
-        const SizedBox(width: 6),
-        Text('// flatpak_dart example',
-            style: AppTheme.mono(size: 10, color: AppTheme.fg2)),
-
-        const Spacer(),
-
-        // Error badge
-        if (prov.remoteError != null)
-          Tooltip(
-            message: prov.remoteError,
-            child: const Icon(Icons.warning_amber_outlined,
-                size: 14, color: AppTheme.amber),
+          // Title
+          Text(
+            'Flatpak Remote Manager',
+            style: AppTheme.ui(
+              size: 13,
+              weight: FontWeight.w600,
+              color: AppTheme.fg0,
+            ),
           ),
 
-        const SizedBox(width: 8),
+          const SizedBox(width: 6),
+          Text(
+            '// flatpak_dart example',
+            style: AppTheme.mono(size: 10, color: AppTheme.fg2),
+          ),
 
-        // Global refresh
-        Tooltip(
-          message: 'Refresh all',
-          child: InkWell(
-            onTap:        () => prov.refresh(),
-            borderRadius: BorderRadius.circular(3),
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Icon(
-                Icons.refresh,
-                size:  15,
-                color: prov.loadingRemotes
-                    ? AppTheme.teal
-                    : AppTheme.fg2,
+          const Spacer(),
+
+          // Error badge
+          if (prov.remoteError != null)
+            Tooltip(
+              message: prov.remoteError,
+              child: const Icon(
+                Icons.warning_amber_outlined,
+                size: 14,
+                color: AppTheme.amber,
+              ),
+            ),
+
+          const SizedBox(width: 8),
+
+          // Global refresh
+          Tooltip(
+            message: 'Refresh all',
+            child: InkWell(
+              onTap: () => prov.refresh(),
+              borderRadius: BorderRadius.circular(3),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.refresh,
+                  size: 15,
+                  color: prov.loadingRemotes ? AppTheme.teal : AppTheme.fg2,
+                ),
               ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -126,14 +134,14 @@ class _AppBar extends StatelessWidget {
 class _TrafficLight extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Row(
-        children: [
-          _Dot(color: Color(0xFFFF5F56)),
-          SizedBox(width: 5),
-          _Dot(color: Color(0xFFFFBD2E)),
-          SizedBox(width: 5),
-          _Dot(color: Color(0xFF27C93F)),
-        ],
-      );
+    children: [
+      _Dot(color: Color(0xFFFF5F56)),
+      SizedBox(width: 5),
+      _Dot(color: Color(0xFFFFBD2E)),
+      SizedBox(width: 5),
+      _Dot(color: Color(0xFF27C93F)),
+    ],
+  );
 }
 
 class _Dot extends StatelessWidget {
@@ -142,10 +150,11 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        width: 10, height: 10,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.7),
-        ),
-      );
+    width: 10,
+    height: 10,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: color.withValues(alpha: 0.7),
+    ),
+  );
 }

@@ -37,15 +37,13 @@ Future<void> main(List<String> args) async {
   final client = FlatpakClient.user();
 
   // If a bare app ID was given, resolve to full ref with host arch.
-  final ref = input.contains('/')
-      ? input
-      : 'app/$input/${_arch}/stable';
+  final ref = input.contains('/') ? input : 'app/$input/$_arch/stable';
 
   print('Uninstalling $ref...\n');
 
   final tx = client.uninstall(ref);
 
-  final ops = <String, String>{};  // ref -> status
+  final ops = <String, String>{}; // ref -> status
   var opNum = 0;
 
   await for (final p in tx.progress) {

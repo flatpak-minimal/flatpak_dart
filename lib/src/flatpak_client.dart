@@ -6,6 +6,8 @@
 /// print('${apps.length} applications installed');
 /// await client.close();
 /// ```
+library;
+
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
@@ -48,8 +50,7 @@ class FlatpakClient {
   /// List installed applications.
   Future<List<FlatpakApplication>> listApplications({
     bool includeRuntimes = false,
-  }) =>
-      _installation.listApplications(includeRuntimes: includeRuntimes);
+  }) => _installation.listApplications(includeRuntimes: includeRuntimes);
 
   /// List configured remotes.
   Future<List<FlatpakRemote>> listRemotes() => _installation.listRemotes();
@@ -59,16 +60,15 @@ class FlatpakClient {
     String appId, {
     String arch = '',
     String branch = '',
-  }) =>
-      _installation.getAppInfo(appId, arch: arch, branch: branch);
+  }) => _installation.getAppInfo(appId, arch: arch, branch: branch);
 
   /// Get permission overrides for an application.
   Future<List<FlatpakPermission>> permissions(String appId) =>
       _installation.getPermissions(appId);
 
   /// Fetch metadata (sandbox permissions) for a remote ref before installing.
-  /// Returns parsed key-value entries from the [Context], [Session Bus Policy],
-  /// [System Bus Policy], and [Environment] sections of the app's metadata.
+  /// Returns parsed key-value entries from the `Context`, `Session Bus Policy`,
+  /// `System Bus Policy`, and `Environment` sections of the app's metadata.
   Future<List<MetadataEntry>> fetchRemoteMetadata(String remote, String ref) =>
       _installation.fetchRemoteMetadata(remote, ref);
 

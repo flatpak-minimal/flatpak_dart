@@ -30,6 +30,12 @@ class MockFlatpakBridge {
   bool _staticRemoveError = false;
   String? _staticRemoveErrorName;
 
+  /// True once [stubStaticRemoveError] has armed a remove failure.
+  bool get staticRemoveError => _staticRemoveError;
+
+  /// Remote name that [stubStaticRemoveError] was armed with.
+  String? get staticRemoveErrorName => _staticRemoveErrorName;
+
   void stubStaticRemoveError(String name) {
     _staticRemoveError = true;
     _staticRemoveErrorName = name;
@@ -47,6 +53,9 @@ class MockTransactionBridge {
   void Function(String ref)? onExecute;
   void Function(List<dynamic>)? onSubmit;
   bool _blocked = false;
+
+  /// True while a transaction is being held by [blockFirstTx].
+  bool get blocked => _blocked;
 
   void blockFirstTx() => _blocked = true;
   void releaseTx() => _blocked = false;

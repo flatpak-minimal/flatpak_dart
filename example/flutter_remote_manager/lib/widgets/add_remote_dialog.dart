@@ -14,49 +14,86 @@ enum _AddMode { known, custom }
 
 /// Each entry in the known-remotes picker.
 class _KnownEntry {
-  final String            label;
-  final String            suggestedName;
+  final String label;
+  final String suggestedName;
   final FlatpakRemoteConfig config;
-  final String            description;
+  final String description;
 
-  const _KnownEntry(this.label, this.suggestedName, this.config,
-      this.description);
+  const _KnownEntry(
+    this.label,
+    this.suggestedName,
+    this.config,
+    this.description,
+  );
 }
 
 final _knownEntries = <_KnownEntry>[
-  const _KnownEntry('Flathub',              'flathub',
-      KnownRemotes.flathub,
-      'The main Flatpak repository — all apps.'),
-  const _KnownEntry('Flathub Verified',     'flathub-verified',
-      KnownRemotes.flathubVerified,
-      'Upstream-maintained apps only (--subset=verified).'),
-  const _KnownEntry('Flathub FLOSS',        'flathub-floss',
-      KnownRemotes.flathubFloss,
-      'Open-source apps only (--subset=floss).'),
-  const _KnownEntry('Flathub Verified FLOSS','flathub-verified_floss',
-      KnownRemotes.flathubVerifiedFloss,
-      'Open-source + upstream-maintained (--subset=verified_floss).'),
-  const _KnownEntry('Flathub Beta',         'flathub-beta',
-      KnownRemotes.flathubBeta,
-      'Pre-release Flathub channel.'),
-  const _KnownEntry('Fedora',               'fedora',
-      KnownRemotes.fedora,
-      'Fedora-built apps via OCI (oci+https://).'),
-  const _KnownEntry('elementary AppCenter', 'elementaryos',
-      KnownRemotes.elementaryOs,
-      'Curated apps for elementary OS.'),
-  const _KnownEntry('PureOS',               'PureOS',
-      KnownRemotes.pureOs,
-      'Purism apps (security-focused).'),
-  const _KnownEntry('Igalia',               'igalia',
-      KnownRemotes.igalia,
-      'Gobby, Linphone, WebKit SDK.'),
-  const _KnownEntry('GNOME Nightly',        'gnome-nightly',
-      KnownRemotes.gnomeNightly,
-      'Nightly GNOME apps and runtime.'),
-  const _KnownEntry('KDE Runtime Nightly',  'kde-runtime-nightly',
-      KnownRemotes.kdeRuntimeNightly,
-      'Required by KDE per-app nightly remotes.'),
+  const _KnownEntry(
+    'Flathub',
+    'flathub',
+    KnownRemotes.flathub,
+    'The main Flatpak repository — all apps.',
+  ),
+  const _KnownEntry(
+    'Flathub Verified',
+    'flathub-verified',
+    KnownRemotes.flathubVerified,
+    'Upstream-maintained apps only (--subset=verified).',
+  ),
+  const _KnownEntry(
+    'Flathub FLOSS',
+    'flathub-floss',
+    KnownRemotes.flathubFloss,
+    'Open-source apps only (--subset=floss).',
+  ),
+  const _KnownEntry(
+    'Flathub Verified FLOSS',
+    'flathub-verified_floss',
+    KnownRemotes.flathubVerifiedFloss,
+    'Open-source + upstream-maintained (--subset=verified_floss).',
+  ),
+  const _KnownEntry(
+    'Flathub Beta',
+    'flathub-beta',
+    KnownRemotes.flathubBeta,
+    'Pre-release Flathub channel.',
+  ),
+  const _KnownEntry(
+    'Fedora',
+    'fedora',
+    KnownRemotes.fedora,
+    'Fedora-built apps via OCI (oci+https://).',
+  ),
+  const _KnownEntry(
+    'elementary AppCenter',
+    'elementaryos',
+    KnownRemotes.elementaryOs,
+    'Curated apps for elementary OS.',
+  ),
+  const _KnownEntry(
+    'PureOS',
+    'PureOS',
+    KnownRemotes.pureOs,
+    'Purism apps (security-focused).',
+  ),
+  const _KnownEntry(
+    'Igalia',
+    'igalia',
+    KnownRemotes.igalia,
+    'Gobby, Linphone, WebKit SDK.',
+  ),
+  const _KnownEntry(
+    'GNOME Nightly',
+    'gnome-nightly',
+    KnownRemotes.gnomeNightly,
+    'Nightly GNOME apps and runtime.',
+  ),
+  const _KnownEntry(
+    'KDE Runtime Nightly',
+    'kde-runtime-nightly',
+    KnownRemotes.kdeRuntimeNightly,
+    'Required by KDE per-app nightly remotes.',
+  ),
 ];
 
 class AddRemoteDialog extends StatefulWidget {
@@ -67,12 +104,12 @@ class AddRemoteDialog extends StatefulWidget {
 }
 
 class _AddRemoteDialogState extends State<AddRemoteDialog> {
-  _AddMode       _mode     = _AddMode.known;
-  _KnownEntry?   _selected = _knownEntries.first;
+  _AddMode _mode = _AddMode.known;
+  _KnownEntry? _selected = _knownEntries.first;
 
   final _nameCtrl = TextEditingController();
-  final _urlCtrl  = TextEditingController();
-  final _formKey  = GlobalKey<FormState>();
+  final _urlCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -89,7 +126,7 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
 
   void _onKnownChanged(_KnownEntry? e) {
     setState(() {
-      _selected      = e;
+      _selected = e;
       _nameCtrl.text = e?.suggestedName ?? '';
     });
   }
@@ -98,13 +135,12 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_mode == _AddMode.known && _selected != null) {
-      Navigator.of(context).pop((
-        name:   _nameCtrl.text.trim(),
-        config: _selected!.config,
-      ));
+      Navigator.of(
+        context,
+      ).pop((name: _nameCtrl.text.trim(), config: _selected!.config));
     } else {
       Navigator.of(context).pop((
-        name:   _nameCtrl.text.trim(),
+        name: _nameCtrl.text.trim(),
         config: FlatpakRemoteConfig(url: _urlCtrl.text.trim(), gpgVerify: true),
       ));
     }
@@ -129,25 +165,37 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ── Header ──────────────────────────────────────────────
-                Row(children: [
-                  const Icon(Icons.add_circle_outline,
-                      color: AppTheme.teal, size: 16),
-                  const SizedBox(width: 8),
-                  Text('Add Remote', style: AppTheme.ui(size: 15, weight: FontWeight.w600)),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, size: 16, color: AppTheme.fg2),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ]),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.add_circle_outline,
+                      color: AppTheme.teal,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Add Remote',
+                      style: AppTheme.ui(size: 15, weight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 16,
+                        color: AppTheme.fg2,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
 
                 const SizedBox(height: 20),
 
                 // ── Mode toggle ──────────────────────────────────────────
                 _ModeToggle(
-                  value:    _mode,
+                  value: _mode,
                   onChanged: (m) => setState(() => _mode = m),
                 ),
 
@@ -160,13 +208,13 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
                   DropdownButtonFormField<_KnownEntry>(
                     initialValue: _selected,
                     dropdownColor: AppTheme.bg2,
-                    style:       AppTheme.ui(size: 13),
-                    decoration:  const InputDecoration(),
+                    style: AppTheme.ui(size: 13),
+                    decoration: const InputDecoration(),
                     items: _knownEntries
-                        .map((e) => DropdownMenuItem(
-                              value: e,
-                              child: Text(e.label),
-                            ))
+                        .map(
+                          (e) =>
+                              DropdownMenuItem(value: e, child: Text(e.label)),
+                        )
                         .toList(),
                     onChanged: _onKnownChanged,
                   ),
@@ -174,8 +222,10 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
                     const SizedBox(height: 8),
                     _UrlChip(_selected!.config.url ?? ''),
                     const SizedBox(height: 6),
-                    Text(_selected!.description,
-                        style: AppTheme.ui(size: 11, color: AppTheme.fg2)),
+                    Text(
+                      _selected!.description,
+                      style: AppTheme.ui(size: 11, color: AppTheme.fg2),
+                    ),
                   ],
                 ],
 
@@ -185,12 +235,13 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
                   const SizedBox(height: 6),
                   TextFormField(
                     controller: _urlCtrl,
-                    style:      AppTheme.mono(size: 12),
+                    style: AppTheme.mono(size: 12),
                     decoration: const InputDecoration(
                       hintText: 'https://example.com/repo.flatpakrepo',
                     ),
                     validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'URL is required' : null,
+                        ? 'URL is required'
+                        : null,
                   ),
                 ],
 
@@ -201,10 +252,11 @@ class _AddRemoteDialogState extends State<AddRemoteDialog> {
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _nameCtrl,
-                  style:      AppTheme.mono(size: 12),
+                  style: AppTheme.mono(size: 12),
                   decoration: const InputDecoration(hintText: 'flathub'),
-                  validator:  (v) => (v == null || v.trim().isEmpty)
-                      ? 'Name is required' : null,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Name is required'
+                      : null,
                 ),
 
                 const SizedBox(height: 24),
@@ -240,10 +292,13 @@ class _Label extends StatelessWidget {
   const _Label(this.text);
   @override
   Widget build(BuildContext context) => Text(
-        text.toUpperCase(),
-        style: AppTheme.ui(size: 10, color: AppTheme.fg2, weight: FontWeight.w600)
-            .copyWith(letterSpacing: 0.8),
-      );
+    text.toUpperCase(),
+    style: AppTheme.ui(
+      size: 10,
+      color: AppTheme.fg2,
+      weight: FontWeight.w600,
+    ).copyWith(letterSpacing: 0.8),
+  );
 }
 
 class _UrlChip extends StatelessWidget {
@@ -251,40 +306,42 @@ class _UrlChip extends StatelessWidget {
   const _UrlChip(this.url);
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color:        AppTheme.bg2,
-          borderRadius: BorderRadius.circular(3),
-          border:       Border.all(color: AppTheme.border, width: 0.5),
-        ),
-        child: Text(url, style: AppTheme.mono(size: 10, color: AppTheme.fg1)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: AppTheme.bg2,
+      borderRadius: BorderRadius.circular(3),
+      border: Border.all(color: AppTheme.border, width: 0.5),
+    ),
+    child: Text(url, style: AppTheme.mono(size: 10, color: AppTheme.fg1)),
+  );
 }
 
 class _ModeToggle extends StatelessWidget {
-  final _AddMode     value;
+  final _AddMode value;
   final ValueChanged<_AddMode> onChanged;
   const _ModeToggle({required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) => Container(
-        height: 32,
-        decoration: BoxDecoration(
-          color:        AppTheme.bg2,
-          borderRadius: BorderRadius.circular(4),
-          border:       Border.all(color: AppTheme.border, width: 0.5),
-        ),
-        child: Row(children: [
-          _Seg('Known repos', _AddMode.known,  value, onChanged),
-          _Seg('Custom URL',  _AddMode.custom, value, onChanged),
-        ]),
-      );
+    height: 32,
+    decoration: BoxDecoration(
+      color: AppTheme.bg2,
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: AppTheme.border, width: 0.5),
+    ),
+    child: Row(
+      children: [
+        _Seg('Known repos', _AddMode.known, value, onChanged),
+        _Seg('Custom URL', _AddMode.custom, value, onChanged),
+      ],
+    ),
+  );
 }
 
 class _Seg extends StatelessWidget {
-  final String    label;
-  final _AddMode  mine;
-  final _AddMode  current;
+  final String label;
+  final _AddMode mine;
+  final _AddMode current;
   final ValueChanged<_AddMode> onChanged;
   const _Seg(this.label, this.mine, this.current, this.onChanged);
 
@@ -297,18 +354,23 @@ class _Seg extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
-            color:        active ? AppTheme.teal.withValues(alpha: 0.12) : Colors.transparent,
+            color: active
+                ? AppTheme.teal.withValues(alpha: 0.12)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(3),
-            border:       active
-                ? Border.all(color: AppTheme.teal.withValues(alpha: 0.4), width: 0.5)
+            border: active
+                ? Border.all(
+                    color: AppTheme.teal.withValues(alpha: 0.4),
+                    width: 0.5,
+                  )
                 : Border.all(color: Colors.transparent),
           ),
           alignment: Alignment.center,
           child: Text(
             label,
             style: AppTheme.ui(
-              size:   12,
-              color:  active ? AppTheme.teal : AppTheme.fg2,
+              size: 12,
+              color: active ? AppTheme.teal : AppTheme.fg2,
               weight: active ? FontWeight.w600 : FontWeight.w400,
             ),
           ),

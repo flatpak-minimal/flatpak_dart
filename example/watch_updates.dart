@@ -12,14 +12,14 @@ Future<void> main() async {
 
   // Snapshot current state
   var knownApps = {
-    for (final app in await client.listApplications()) app.ref.name: app
+    for (final app in await client.listApplications()) app.ref.name: app,
   };
 
   print('Watching ${knownApps.length} app(s)... (Ctrl+C to stop)\n');
 
   await for (final _ in monitor.events) {
     final currentApps = {
-      for (final app in await client.listApplications()) app.ref.name: app
+      for (final app in await client.listApplications()) app.ref.name: app,
     };
 
     final added = currentApps.keys.where((k) => !knownApps.containsKey(k));

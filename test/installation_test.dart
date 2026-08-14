@@ -1,5 +1,5 @@
 @TestOn('vm')
-library installation_test;
+library;
 
 import 'package:flatpak_dart/flatpak_dart.dart';
 import 'package:test/test.dart';

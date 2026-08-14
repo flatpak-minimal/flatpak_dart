@@ -85,18 +85,19 @@ class TransactionProgress {
     if (bytesTransferred > 0) {
       return '$pct  ${_fmt(bytesTransferred)} transferred';
     }
-    return '$pct';
+    return pct;
   }
 
   @override
-  String toString() => '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
+  String toString() =>
+      '$op ${ref.split('/').elementAtOrNull(1) ?? ref}: '
       '$progressLabel  [$status]';
 
   static String _fmt(int n) => n >= 1 << 30
       ? '${(n / (1 << 30)).toStringAsFixed(1)} GiB'
       : n >= 1 << 20
-          ? '${(n / (1 << 20)).toStringAsFixed(1)} MiB'
-          : '${(n / 1024).toStringAsFixed(1)} KiB';
+      ? '${(n / (1 << 20)).toStringAsFixed(1)} MiB'
+      : '${(n / 1024).toStringAsFixed(1)} KiB';
 }
 
 // ── TransactionBridge (internal) ──────────────────────────────────────────
@@ -179,10 +180,10 @@ class TransactionBridge {
       _submit((h) => FlatpakBindings.txAddInstallBundle(h, path));
 
   FlatpakTransaction submitBuilder(TransactionBuilder b) => _submit((h) {
-        for (final op in b._ops) {
-          op(h);
-        }
-      });
+    for (final op in b._ops) {
+      op(h);
+    }
+  });
 
   void close() => FlatpakBindings.workerDestroy(_workerHandle);
 }

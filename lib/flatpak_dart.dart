@@ -2,7 +2,7 @@
 ///
 /// Uses native_comms + libflatpak C API for zero-copy integration.
 /// No D-Bus client library required.
-library flatpak_dart;
+library;
 
 export 'src/application.dart';
 export 'src/exceptions.dart';

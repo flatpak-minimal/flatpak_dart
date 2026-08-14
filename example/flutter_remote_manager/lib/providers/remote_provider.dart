@@ -27,10 +27,9 @@ class RemoteProvider extends ChangeNotifier {
   String? _selectedName;
   String? get selectedName => _selectedName;
 
-  FlatpakRemote? get selected =>
-      _selectedName == null
-          ? null
-          : _remotes.where((r) => r.name == _selectedName).firstOrNull;
+  FlatpakRemote? get selected => _selectedName == null
+      ? null
+      : _remotes.where((r) => r.name == _selectedName).firstOrNull;
 
   // ── Package list state ────────────────────────────────────────────────
   final List<FlatpakRef> _packages = [];
@@ -56,8 +55,8 @@ class RemoteProvider extends ChangeNotifier {
     _client = FlatpakClient.user();
     await _refreshRemoteList();
     // Auto-select first remote (prefer enabled).
-    final first = _remotes.where((r) => !r.disabled).firstOrNull ??
-        _remotes.firstOrNull;
+    final first =
+        _remotes.where((r) => !r.disabled).firstOrNull ?? _remotes.firstOrNull;
     if (first != null) {
       await selectRemote(first.name);
     }
@@ -126,8 +125,7 @@ class RemoteProvider extends ChangeNotifier {
     // Auto-select if current selection is gone
     if (_selectedName == null ||
         !_remotes.any((r) => r.name == _selectedName)) {
-      _selectedName =
-          _remotes.where((r) => !r.disabled).firstOrNull?.name;
+      _selectedName = _remotes.where((r) => !r.disabled).firstOrNull?.name;
       notifyListeners();
       if (_selectedName != null) await _loadPackages();
     }
@@ -163,16 +161,26 @@ class RemoteProvider extends ChangeNotifier {
         await _client!.remotes.remove(r.name, force: true);
       } catch (_) {}
     }
-    await _client!.remotes
-        .add('flathub', KnownRemotes.flathub, ifNotExists: true);
     await _client!.remotes.add(
-        'flathub-verified', KnownRemotes.flathubVerified,
-        ifNotExists: true);
-    await _client!.remotes
-        .add('flathub-floss', KnownRemotes.flathubFloss, ifNotExists: true);
+      'flathub',
+      KnownRemotes.flathub,
+      ifNotExists: true,
+    );
     await _client!.remotes.add(
-        'flathub-verified_floss', KnownRemotes.flathubVerifiedFloss,
-        ifNotExists: true);
+      'flathub-verified',
+      KnownRemotes.flathubVerified,
+      ifNotExists: true,
+    );
+    await _client!.remotes.add(
+      'flathub-floss',
+      KnownRemotes.flathubFloss,
+      ifNotExists: true,
+    );
+    await _client!.remotes.add(
+      'flathub-verified_floss',
+      KnownRemotes.flathubVerifiedFloss,
+      ifNotExists: true,
+    );
 
     _selectedName = null;
     await _refreshRemoteList();
@@ -197,26 +205,27 @@ class RemoteProvider extends ChangeNotifier {
     }
 
     try {
-      _packageSub =
-          _client!.remotes.listApps(remote, includeRuntimes: false).listen(
-        (ref) {
-          if (_selectedName != remote) return;
-          _packages.add(ref);
-          if (_packages.length % 50 == 0) notifyListeners();
-        },
-        onDone: () {
-          if (_selectedName != remote) return;
-          _loadState = PackageLoadState.done;
-          notifyListeners();
-        },
-        onError: (Object e) {
-          if (_selectedName != remote) return;
-          _packageError = e.toString();
-          _loadState = PackageLoadState.error;
-          notifyListeners();
-        },
-        cancelOnError: true,
-      );
+      _packageSub = _client!.remotes
+          .listApps(remote, includeRuntimes: false)
+          .listen(
+            (ref) {
+              if (_selectedName != remote) return;
+              _packages.add(ref);
+              if (_packages.length % 50 == 0) notifyListeners();
+            },
+            onDone: () {
+              if (_selectedName != remote) return;
+              _loadState = PackageLoadState.done;
+              notifyListeners();
+            },
+            onError: (Object e) {
+              if (_selectedName != remote) return;
+              _packageError = e.toString();
+              _loadState = PackageLoadState.error;
+              notifyListeners();
+            },
+            cancelOnError: true,
+          );
     } catch (e) {
       _packageError = e.toString();
       _loadState = PackageLoadState.error;
