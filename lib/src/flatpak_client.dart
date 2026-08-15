@@ -86,13 +86,7 @@ class FlatpakClient {
     String arch = '',
     String branch = '',
     String commit = '',
-  }) =>
-      _installation.launch(
-        appId,
-        arch: arch,
-        branch: branch,
-        commit: commit,
-      );
+  }) => _installation.launch(appId, arch: arch, branch: branch, commit: commit);
 
   /// Stop every running instance of [appId]. Returns once SIGTERM has been
   /// sent; grace period + SIGKILL escalation continue in the background.
