@@ -50,14 +50,7 @@ external void _readerGetRemoteInfo(
 );
 
 @Native<
-  Void Function(
-    Pointer<Void>,
-    Int64,
-    Pointer<Utf8>,
-    Pointer<Utf8>,
-    Bool,
-    Bool,
-  )
+  Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool, Bool)
 >(symbol: 'flatpak_reader_list_remote_apps')
 external void _readerListRemoteApps(
   Pointer<Void> handle,
@@ -153,7 +146,9 @@ external void _readerRefreshAppstream(
 
 // ── System introspection ─────────────────────────────────────────────────
 
-@Native<Void Function(Pointer<Void>, Int64)>(symbol: 'flatpak_reader_get_version')
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_get_version',
+)
 external void _readerGetVersion(Pointer<Void> handle, int port);
 
 @Native<Void Function(Pointer<Void>, Int64)>(
