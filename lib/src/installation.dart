@@ -281,7 +281,13 @@ class FlatpakInstallation {
   /// Launch an installed application in its sandbox.
   /// Completes when the sandbox has been spawned (non-blocking on the app).
   /// Returns the [FlatpakInstance] libflatpak created for the launch, so
-  /// callers get the instanceId/pid immediately instead of polling [listRunning].
+  /// callers get the instanceId and pid immediately instead of polling
+  /// [listRunning].
+  ///
+  /// [FlatpakInstance.childPid] is resolved on a best-effort basis: libflatpak
+  /// reports it as `0` on a freshly launched instance, so the native side waits
+  /// briefly for bwrap to write it. It is `0` if the app exits before that or
+  /// the wait times out; everything else on the instance is always populated.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',

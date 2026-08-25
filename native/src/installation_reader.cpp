@@ -418,6 +418,47 @@ static bool resolve_launch_target(FlatpakInstallation* installation, const char*
     return found;
 }
 
+// flatpak_instance_get_child_pid() returns the value the instance directory held when the
+// FlatpakInstance was constructed. launch_full() hands back an object built before bwrap has
+// written the pid file, so reading it there always yields 0. Re-enumerate until a freshly
+// constructed object for the same instance id carries the real pid.
+//
+// Best-effort and bounded: an app that exits before bwrap writes the pid, or a target slow enough
+// to miss the deadline, yields 0 — the same value the caller would have seen without this.
+static int reread_child_pid(const char* instance_id) {
+    constexpr int kPollMs = 5;
+    constexpr int kMaxWaitMs = 500;
+    bool ever_seen = false;
+
+    for (int waited = 0; waited <= kMaxWaitMs; waited += kPollMs) {
+        g_autoptr(GPtrArray) all = flatpak_instance_get_all();
+        bool seen_now = false;
+        if (all) {
+            for (guint i = 0; i < all->len; i++) {
+                auto* inst = static_cast<FlatpakInstance*>(all->pdata[i]);
+                if (g_strcmp0(flatpak_instance_get_id(inst), instance_id) != 0) {
+                    continue;
+                }
+                seen_now = true;
+                int child = flatpak_instance_get_child_pid(inst);
+                if (child > 0) {
+                    return child;
+                }
+                break;
+            }
+        }
+        // Once the instance has appeared and then vanished, the app is gone and no pid is
+        // coming — stop rather than burning the rest of the budget.
+        if (seen_now) {
+            ever_seen = true;
+        } else if (ever_seen) {
+            return 0;
+        }
+        g_usleep(kPollMs * 1000);
+    }
+    return 0;
+}
+
 void InstallationReader::launch(Dart_Port port, const char* app_id, const char* arch,
                                 const char* branch, const char* commit) {
     std::string appIdStr = safe_str(app_id);
@@ -485,6 +526,12 @@ void InstallationReader::launch_impl(Dart_Port port, const char* app_id, const c
     info.pid = flatpak_instance_get_pid(instance);
     info.childPid = flatpak_instance_get_child_pid(instance);
     info.isRunning = flatpak_instance_is_running(instance);
+
+    // Always 0 on the object launch_full() returns; we are on the launch thread, so waiting the
+    // few ms for bwrap to write it costs the Dart thread nothing.
+    if (info.childPid <= 0 && !info.instanceId.empty()) {
+        info.childPid = reread_child_pid(info.instanceId.c_str());
+    }
 
     post_glaze(port, 0x01, info);
     post_sentinel(port);

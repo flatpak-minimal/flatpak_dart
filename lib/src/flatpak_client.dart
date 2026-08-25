@@ -81,6 +81,9 @@ class FlatpakClient {
   /// Launch an installed application in its sandbox ("tap to open").
   /// Pass empty [arch]/[branch]/[commit] to use the installed defaults.
   /// Returns the [FlatpakInstance] libflatpak created for the launch.
+  ///
+  /// [FlatpakInstance.childPid] is best-effort — `0` if the app exits before
+  /// bwrap publishes it. Every other field is always populated.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
