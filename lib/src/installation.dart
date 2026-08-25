@@ -10,6 +10,7 @@ import 'application.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart';
+import 'instance.dart';
 import 'permissions.dart';
 import 'remote.dart';
 
@@ -274,6 +275,142 @@ class FlatpakInstallation {
       remote,
       ref,
     );
+    return completer.future;
+  }
+
+  /// Launch an installed application in its sandbox.
+  /// Completes when the sandbox has been spawned (non-blocking on the app).
+  /// Returns the [FlatpakInstance] libflatpak created for the launch, so
+  /// callers get the instanceId and pid immediately instead of polling
+  /// [listRunning].
+  ///
+  /// [FlatpakInstance.childPid] is resolved on a best-effort basis: libflatpak
+  /// reports it as `0` on a freshly launched instance, so the native side waits
+  /// briefly for bwrap to write it. It is `0` if the app exits before that or
+  /// the wait times out; everything else on the instance is always populated.
+  Future<FlatpakInstance> launch(
+    String appId, {
+    String arch = '',
+    String branch = '',
+    String commit = '',
+  }) async {
+    final port = ReceivePort('flatpak.launch');
+    final completer = Completer<FlatpakInstance>();
+    FlatpakInstance? result;
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1) {
+            result = GlazeCodec.decodeInstance(msg, 1);
+          }
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0x03:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakLaunchException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) {
+            final instance = result;
+            if (instance != null) {
+              completer.complete(instance);
+            } else {
+              completer.completeError(
+                const FlatpakLaunchException('launch produced no instance'),
+              );
+            }
+          }
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerLaunch(
+      _handle,
+      port.sendPort.nativePort,
+      appId,
+      arch,
+      branch,
+      commit,
+    );
+    return completer.future;
+  }
+
+  /// Terminate every running instance of [appId] across the host — flatpak
+  /// instances are not scoped to an installation, so instances launched from
+  /// the other installation are matched too.
+  /// Returns as soon as SIGTERM has been sent to every matched instance;
+  /// SIGKILL escalation continues in the background.
+  ///
+  /// Throws [FlatpakNotFoundException] if no running instance was found, and
+  /// [FlatpakStopException] if instances were found but none could be
+  /// signalled — the app is still running in that case.
+  Future<void> stop(String appId) async {
+    final port = ReceivePort('flatpak.stop');
+    final completer = Completer<void>();
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0x03:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakStopException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete();
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerStop(_handle, port.sendPort.nativePort, appId);
+    return completer.future;
+  }
+
+  /// List running sandbox instances across the host.
+  ///
+  /// The native side only ever posts 0x01 payloads and the 0xFF sentinel here;
+  /// the 0x02 branch below is a defensive guard so an unexpected error frame
+  /// completes the future instead of leaving the caller hanging.
+  Future<List<FlatpakInstance>> listRunning() async {
+    final port = ReceivePort('flatpak.listRunning');
+    final completer = Completer<List<FlatpakInstance>>();
+    final results = <FlatpakInstance>[];
+
+    port.listen((dynamic msg) {
+      if (msg is! Uint8List) return;
+      switch (msg[0]) {
+        case 0x01:
+          if (msg.length > 1) {
+            results.add(GlazeCodec.decodeInstance(msg, 1));
+          }
+        case 0x02:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0xFF:
+          if (!completer.isCompleted) completer.complete(results);
+          port.close();
+      }
+    });
+
+    FlatpakBindings.readerListRunning(_handle, port.sendPort.nativePort);
     return completer.future;
   }
 

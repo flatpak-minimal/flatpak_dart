@@ -90,7 +90,7 @@ static void on_new_operation(FlatpakTransaction*, FlatpakTransactionOperation* o
             post_glaze(ctx->port, 0x10, p);
         }),
         ctx, [](gpointer data, GClosure*) { delete static_cast<ProgressCtx*>(data); },
-        G_CONNECT_DEFAULT);
+        static_cast<GConnectFlags>(0));
 }
 
 static void on_operation_done(FlatpakTransaction*, FlatpakTransactionOperation* op,

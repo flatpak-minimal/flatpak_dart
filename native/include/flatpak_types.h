@@ -159,3 +159,25 @@ struct glz::meta<TransactionProgress> {
         glz::field("bytesTotal", &TransactionProgress::bytesTotal),
         glz::field("status", &TransactionProgress::status));
 };
+
+// A running sandboxed application instance (FlatpakInstance).
+struct FpInstance {
+    std::string appId;
+    std::string instanceId;
+    std::string arch;
+    std::string branch;
+    std::string commit;
+    int32_t pid{};       // outermost (bubblewrap) pid
+    int32_t childPid{};  // application process pid
+    bool isRunning{};
+};
+
+template <>
+struct glz::meta<FpInstance> {
+    static constexpr auto fields = std::make_tuple(
+        glz::field("appId", &FpInstance::appId), glz::field("instanceId", &FpInstance::instanceId),
+        glz::field("arch", &FpInstance::arch), glz::field("branch", &FpInstance::branch),
+        glz::field("commit", &FpInstance::commit), glz::field("pid", &FpInstance::pid),
+        glz::field("childPid", &FpInstance::childPid),
+        glz::field("isRunning", &FpInstance::isRunning));
+};

@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../application.dart';
+import '../instance.dart';
 import '../remote.dart';
 
 // ── Binary reader ──────────────────────────────────────────────────────────
@@ -144,6 +145,20 @@ abstract final class GlazeCodec {
       appDataSummary: r.readString(),
       appDataVersion: r.readString(),
       appDataIcon: r.readString(),
+    );
+  }
+
+  static FlatpakInstance decodeInstance(Uint8List data, int offset) {
+    final r = _BinaryReader(data, offset);
+    return FlatpakInstance(
+      appId: r.readString(),
+      instanceId: r.readString(),
+      arch: r.readString(),
+      branch: r.readString(),
+      commit: r.readString(),
+      pid: r.readInt32(),
+      childPid: r.readInt32(),
+      isRunning: r.readBool(),
     );
   }
 

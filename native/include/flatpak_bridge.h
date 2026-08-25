@@ -6,6 +6,10 @@
 // Message discriminator byte at offset 0:
 //   0x01 = success / list-end sentinel
 //   0x02 = error (UTF-8, uint32_t length-prefix)
+//   0x03 = lifecycle operation failure (UTF-8, uint32_t length-prefix) — a
+//          launch_full() failure, an unreadable installation, or a stop() that
+//          matched running instances but could not signal any. Distinct from
+//          0x02, which means nothing matched.
 //   0x10 = TransactionProgress (glaze-encoded, in-flight during tx_run)
 //   0x11 = UpdateAvailable (FlatpakMonitor inotify signal)
 //   0xFF = streaming list end sentinel
@@ -42,6 +46,27 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port);
 // Posts the raw metadata string as a 0x01 payload, then 0xFF sentinel.
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref);
+// Launch an installed app via flatpak_installation_launch_full() with
+// FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP. Returns immediately; the launch runs on the
+// reader's serial launch thread. On success posts the resulting FlatpakInstance
+// as a 0x01 FpInstance payload followed by the 0xFF sentinel. On failure posts
+// 0x02 if the app is not installed, or 0x03 if the installation could not be
+// read or launch_full() itself failed.
+void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
+                           const char* branch, const char* commit);
+// Terminate every running instance matching app_id, host-wide — flatpak
+// instances are not scoped to an installation, so this also matches instances
+// launched from the other installation. Prefers the sandboxed app process
+// (FlatpakInstance child pid) over the outer bwrap pid, so the app sees the
+// SIGTERM and bwrap follows it down; falls back to the bwrap pid when the child
+// pid has not been published yet. Stale instances whose process has already
+// exited are skipped. SIGTERM is escalated to SIGKILL after a grace period.
+// Posts 0xFF if at least one instance was signalled, 0x02 if nothing matched,
+// or 0x03 if instances matched but none could be signalled.
+void flatpak_reader_stop(void* handle, Dart_Port port, const char* app_id);
+// List running sandbox instances (FlatpakInstance) via flatpak_instance_get_all().
+// Posts each as a 0x01 FpInstance payload, then the 0xFF sentinel.
+void flatpak_reader_list_running(void* handle, Dart_Port port);
 // Invalidate cached data so next list call returns fresh results.
 void flatpak_reader_drop_caches(void* handle);
 

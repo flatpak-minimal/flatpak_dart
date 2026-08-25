@@ -94,6 +94,33 @@ TEST(TransactionProgress, RoundtripBasic) {
     EXPECT_EQ(decoded.status, orig.status);
 }
 
+TEST(FpInstance, RoundtripFull) {
+    FpInstance orig;
+    orig.appId = "org.gnome.Calculator";
+    orig.instanceId = "42";
+    orig.arch = "x86_64";
+    orig.branch = "stable";
+    orig.commit = "deadbeef";
+    orig.pid = 1234;
+    orig.childPid = 1240;
+    orig.isRunning = true;
+
+    std::vector<uint8_t> buf;
+    buf = glz::write_binary(orig);
+
+    FpInstance decoded;
+    glz::read_binary(buf, decoded);
+
+    EXPECT_EQ(decoded.appId, orig.appId);
+    EXPECT_EQ(decoded.instanceId, orig.instanceId);
+    EXPECT_EQ(decoded.arch, orig.arch);
+    EXPECT_EQ(decoded.branch, orig.branch);
+    EXPECT_EQ(decoded.commit, orig.commit);
+    EXPECT_EQ(decoded.pid, orig.pid);
+    EXPECT_EQ(decoded.childPid, orig.childPid);
+    EXPECT_EQ(decoded.isRunning, orig.isRunning);
+}
+
 TEST(TransactionProgress, ZeroBytesTotal) {
     TransactionProgress orig;
     orig.op = "install";

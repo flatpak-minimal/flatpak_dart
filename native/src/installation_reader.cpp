@@ -4,7 +4,19 @@
 
 #include "installation_reader.h"
 
+#include <poll.h>
+#include <signal.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <memory>
+#include <string>
 
 #include "flatpak_bridge.h"
 #include "flatpak_post.h"
@@ -27,18 +39,90 @@ static void post_error(Dart_Port port, const char* msg) {
     flatpak_nc::post_framed_error(port, 0x02, msg);
 }
 
+// 0x03 — lifecycle operation failure (launch or stop), as distinct from the 0x02 "nothing
+// matched" condition that maps to FlatpakNotFoundException on the Dart side.
+static void post_op_error(Dart_Port port, const char* msg) {
+    flatpak_nc::post_framed_error(port, 0x03, msg);
+}
+
 static const char* safe_str(const char* s) {
     return s ? s : "";
+}
+
+// FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP leaves the bwrap process as our child, so
+// something in this process has to waitpid() it or it becomes a zombie for the
+// lifetime of the host app. waitpid(-1) would be wrong in a library — it would
+// steal exit statuses from whatever else the embedder has spawned — so we wait
+// on the specific pid.
+//
+// TODO: this parks one thread per launched app for that app's entire lifetime.
+// Replace with a single reaper thread multiplexing pidfds via epoll, reaping
+// with waitpid(pid, &status, WNOHANG) on POLLIN, which scales to N running apps
+// with one thread.
+static gpointer reap_thread(gpointer data) {
+    auto pid = static_cast<GPid>(GPOINTER_TO_INT(data));
+    int status = 0;
+    // Retry on EINTR: a single unrestarted waitpid() would abandon the child as a zombie for the
+    // lifetime of the host process, which is exactly what this reaper exists to prevent. The Dart
+    // VM's profiler delivers SIGPROF, and embedders install handlers of their own.
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    return nullptr;
+}
+
+static void reap_async(GPid pid) {
+    GThread* t = g_thread_new("flatpak-reap", reap_thread, GINT_TO_POINTER(pid));
+    g_thread_unref(t);
 }
 
 // ── InstallationReader ──────────────────────────────────────────────────────
 
 InstallationReader::InstallationReader(FlatpakInstallation* inst)
     : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
+    launch_thread_ = std::thread(&InstallationReader::launch_loop, this);
 }
 
 InstallationReader::~InstallationReader() {
+    // Signal, then join, then unref: the in-flight launch (if any) finishes against a live
+    // installation_, the queued backlog is cancelled rather than run, and only then do we drop the
+    // installation reference the launch thread was using.
+    {
+        std::lock_guard lk(launch_mu_);
+        launch_stop_.store(true);
+    }
+    launch_cv_.notify_one();
+    if (launch_thread_.joinable()) {
+        launch_thread_.join();
+    }
     g_object_unref(installation_);
+}
+
+void InstallationReader::launch_loop() {
+    for (;;) {
+        LaunchRequest req;
+        {
+            std::unique_lock lk(launch_mu_);
+            launch_cv_.wait(lk, [&] { return launch_stop_.load() || !launch_queue_.empty(); });
+            if (launch_stop_.load()) {
+                // Do not make close() pay for the whole backlog: a queued launch has not spawned
+                // anything yet, so cancelling it costs nothing but a reply. Each one still gets an
+                // error frame, so no Dart future is left hanging. Only the in-flight launch (if
+                // any) has already run to completion by the time we get here.
+                std::queue<LaunchRequest> pending;
+                pending.swap(launch_queue_);
+                lk.unlock();
+                while (!pending.empty()) {
+                    post_op_error(pending.front().port, "reader closed before launch started");
+                    pending.pop();
+                }
+                return;
+            }
+            req = std::move(launch_queue_.front());
+            launch_queue_.pop();
+        }
+        launch_impl(req.port, req.appId.c_str(), req.arch.c_str(), req.branch.c_str(),
+                    req.commit.c_str());
+    }
 }
 
 void InstallationReader::list_apps(Dart_Port port, bool include_runtimes) {
@@ -302,6 +386,416 @@ void InstallationReader::fetch_remote_metadata(Dart_Port port, const char* remot
     post_sentinel(port);
 }
 
+// Returns false when no installed ref matches. *out_err is set only when the lookup itself
+// failed (as opposed to simply finding nothing), so the caller can tell "app not installed" from
+// "could not read the installation".
+static bool resolve_launch_target(FlatpakInstallation* installation, const char* app_id,
+                                  const char* hint_arch, const char* hint_branch,
+                                  std::string* out_arch, std::string* out_branch,
+                                  std::string* out_err) {
+    g_autoptr(GError) cerr = nullptr;
+    g_autoptr(FlatpakInstalledRef) current =
+        flatpak_installation_get_current_installed_app(installation, app_id, nullptr, &cerr);
+    if (current) {
+        const char* a = flatpak_ref_get_arch(FLATPAK_REF(current));
+        const char* b = flatpak_ref_get_branch(FLATPAK_REF(current));
+        bool arch_ok = !hint_arch || g_strcmp0(a, hint_arch) == 0;
+        bool branch_ok = !hint_branch || g_strcmp0(b, hint_branch) == 0;
+        if (arch_ok && branch_ok) {
+            *out_arch = a;
+            *out_branch = b;
+            return true;
+        }
+    }
+
+    const char* default_arch = flatpak_get_default_arch();
+    g_autoptr(GError) lerr = nullptr;
+    g_autoptr(GPtrArray) refs =
+        flatpak_installation_list_installed_refs(installation, nullptr, &lerr);
+    if (!refs) {
+        *out_err = lerr && lerr->message ? lerr->message : "failed to list installed refs";
+        return false;
+    }
+    bool found = false;
+    for (guint i = 0; i < refs->len; i++) {
+        auto* iref = static_cast<FlatpakInstalledRef*>(refs->pdata[i]);
+        if (flatpak_ref_get_kind(FLATPAK_REF(iref)) != FLATPAK_REF_KIND_APP) {
+            continue;
+        }
+        if (g_strcmp0(flatpak_ref_get_name(FLATPAK_REF(iref)), app_id) != 0) {
+            continue;
+        }
+        const char* a = flatpak_ref_get_arch(FLATPAK_REF(iref));
+        const char* b = flatpak_ref_get_branch(FLATPAK_REF(iref));
+        if (hint_arch && g_strcmp0(a, hint_arch) != 0) {
+            continue;
+        }
+        if (hint_branch && g_strcmp0(b, hint_branch) != 0) {
+            continue;
+        }
+        if (!found || (!hint_arch && g_strcmp0(a, default_arch) == 0)) {
+            *out_arch = a;
+            *out_branch = b;
+            found = true;
+        }
+        if (g_strcmp0(a, default_arch) == 0) {
+            break;  // can't do better than the default arch
+        }
+    }
+    return found;
+}
+
+// flatpak_instance_get_child_pid() returns the value the instance directory held when the
+// FlatpakInstance was constructed. launch_full() hands back an object built before bwrap has
+// written the pid file, so reading it there always yields 0. Re-enumerate until a freshly
+// constructed object for the same instance id carries the real pid.
+//
+// Best-effort and bounded: an app that exits before bwrap writes the pid, or a target slow enough
+// to miss the deadline, yields 0 — the same value the caller would have seen without this.
+static int reread_child_pid(const char* instance_id, const std::atomic<bool>& cancelled) {
+    constexpr int kMaxWaitMs = 500;
+    constexpr int kMaxBackoffMs = 64;
+    bool ever_seen = false;
+    int waited = 0;
+    int delay_ms = 1;
+
+    for (;;) {
+        g_autoptr(GPtrArray) all = flatpak_instance_get_all();
+        bool seen_now = false;
+        if (all) {
+            for (guint i = 0; i < all->len; i++) {
+                auto* inst = static_cast<FlatpakInstance*>(all->pdata[i]);
+                if (g_strcmp0(flatpak_instance_get_id(inst), instance_id) != 0) {
+                    continue;
+                }
+                seen_now = true;
+                int child = flatpak_instance_get_child_pid(inst);
+                if (child > 0) {
+                    return child;
+                }
+                break;
+            }
+        }
+        // Once the instance has appeared and then vanished, the app is gone and no pid is
+        // coming — stop rather than burning the rest of the budget.
+        if (seen_now) {
+            ever_seen = true;
+        } else if (ever_seen) {
+            return 0;
+        }
+        if (waited >= kMaxWaitMs || cancelled.load()) {
+            return 0;
+        }
+        // Back off geometrically. Every probe re-enumerates and re-parses the info file of every
+        // running flatpak on the host, so a fixed 5ms interval spent ~100 of them to cover 500ms;
+        // this covers the same window in ~13 while leaving the common case (found on the first or
+        // second probe) exactly as fast.
+        int sleep_ms = std::min(delay_ms, kMaxWaitMs - waited);
+        g_usleep(static_cast<gulong>(sleep_ms) * 1000);
+        waited += sleep_ms;
+        delay_ms = std::min(delay_ms * 2, kMaxBackoffMs);
+    }
+}
+
+void InstallationReader::launch(Dart_Port port, const char* app_id, const char* arch,
+                                const char* branch, const char* commit) {
+    std::string appIdStr = safe_str(app_id);
+    std::string archStr = safe_str(arch);
+    std::string branchStr = safe_str(branch);
+    std::string commitStr = safe_str(commit);
+    {
+        std::lock_guard lk(launch_mu_);
+        launch_queue_.push(LaunchRequest{port, appIdStr, archStr, branchStr, commitStr});
+    }
+    launch_cv_.notify_one();
+}
+
+void InstallationReader::launch_impl(Dart_Port port, const char* app_id, const char* arch,
+                                     const char* branch, const char* commit) {
+    const char* use_arch = (arch && *arch) ? arch : nullptr;
+    const char* use_branch = (branch && *branch) ? branch : nullptr;
+    const char* use_commit = (commit && *commit) ? commit : nullptr;
+
+    std::string resolved_arch;
+    std::string resolved_branch;
+    if (!use_arch || !use_branch) {
+        std::string resolve_err;
+        if (!resolve_launch_target(installation_, app_id, use_arch, use_branch, &resolved_arch,
+                                   &resolved_branch, &resolve_err)) {
+            if (resolve_err.empty()) {
+                post_error(port, "app not installed");
+            } else {
+                // The installation could not be read at all — surfacing that as "not installed"
+                // sends the caller looking for the wrong problem.
+                post_op_error(port, resolve_err.c_str());
+            }
+            return;
+        }
+        if (!use_arch) {
+            use_arch = resolved_arch.c_str();
+        }
+        if (!use_branch) {
+            use_branch = resolved_branch.c_str();
+        }
+    }
+
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakInstance) instance = nullptr;
+
+    gboolean ok = flatpak_installation_launch_full(installation_, FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP,
+                                                   app_id, use_arch, use_branch, use_commit,
+                                                   &instance, nullptr, &err);
+    if (!ok) {
+        if (err && err->domain == FLATPAK_ERROR && err->code == FLATPAK_ERROR_NOT_INSTALLED) {
+            post_error(port, err->message);
+        } else {
+            post_op_error(port, err ? err->message : "launch failed");
+        }
+        return;
+    }
+
+    auto outer_pid = static_cast<GPid>(flatpak_instance_get_pid(instance));
+    if (outer_pid > 0) {
+        reap_async(outer_pid);
+    }
+
+    FpInstance info;
+    info.appId = safe_str(flatpak_instance_get_app(instance));
+    info.instanceId = safe_str(flatpak_instance_get_id(instance));
+    info.arch = safe_str(flatpak_instance_get_arch(instance));
+    info.branch = safe_str(flatpak_instance_get_branch(instance));
+    info.commit = safe_str(flatpak_instance_get_commit(instance));
+    info.pid = flatpak_instance_get_pid(instance);
+    info.childPid = flatpak_instance_get_child_pid(instance);
+    info.isRunning = flatpak_instance_is_running(instance);
+
+    // Always 0 on the object launch_full() returns; we are on the launch thread, so waiting the
+    // few ms for bwrap to write it costs the Dart thread nothing.
+    if (info.childPid <= 0 && !info.instanceId.empty()) {
+        info.childPid = reread_child_pid(info.instanceId.c_str(), launch_stop_);
+    }
+
+    post_glaze(port, 0x01, info);
+    post_sentinel(port);
+}
+
+// Field 22 of /proc/<pid>/stat is the process start time in clock ticks since boot. Paired with
+// the pid it identifies a process *instance*: a recycled pid always carries a different start
+// time, so comparing it before and after we pin a process tells us whether we pinned the one we
+// meant to. Returns false if the process is gone or /proc is unreadable.
+static bool read_start_time(pid_t pid, unsigned long long* out) {
+    char path[64];
+    g_snprintf(path, sizeof(path), "/proc/%d/stat", static_cast<int>(pid));
+    g_autofree char* contents = nullptr;
+    if (!g_file_get_contents(path, &contents, nullptr, nullptr)) {
+        return false;
+    }
+    // Field 2 (comm) is parenthesised and may itself contain spaces and parens, so start scanning
+    // after the final ')'; the next token is field 3.
+    const char* p = strrchr(contents, ')');
+    if (!p) {
+        return false;
+    }
+    p++;
+    int field = 2;
+    while (*p) {
+        while (*p == ' ') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        field++;
+        if (field == 22) {
+            return sscanf(p, "%llu", out) == 1;
+        }
+        while (*p && *p != ' ') {
+            p++;
+        }
+    }
+    return false;
+}
+
+constexpr int kGraceMs = 1500;
+
+// pidfd-based signalling. A pidfd pins the exact process instance it was opened for, so once we
+// hold one the pid cannot be recycled out from under us. It does NOT cover the window before the
+// open: the pid we are about to open came out of an instance file on disk and the process may have
+// exited since. read_start_time() below closes that window.
+static int pidfd_open_compat(pid_t pid) {
+    return static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+}
+
+static int pidfd_send_signal_compat(int pidfd, int sig) {
+    return static_cast<int>(syscall(SYS_pidfd_send_signal, pidfd, sig, nullptr, 0));
+}
+
+// Grace period + SIGKILL escalation for stop(), on a detached background thread. We don't want to
+// block the Dart thread waiting for the app to exit, and we don't want to leave a stray process if
+// it ignores SIGTERM.
+static gpointer stop_escalate_thread(gpointer data) {
+    auto pidfd = GPOINTER_TO_INT(data);
+    struct pollfd pfd = {.fd = pidfd, .events = POLLIN, .revents = 0};
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kGraceMs);
+    int ret = 0;
+    for (;;) {
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        int timeout_ms = remaining.count() > 0 ? static_cast<int>(remaining.count()) : 0;
+        pfd.revents = 0;
+        ret = poll(&pfd, 1, timeout_ms);
+        if (ret >= 0 || errno != EINTR) {
+            break;
+        }
+        if (timeout_ms == 0) {
+            break;
+        }
+    }
+    if (ret == 0) {
+        pidfd_send_signal_compat(pidfd, SIGKILL);
+    }
+    close(pidfd);
+    return nullptr;
+}
+
+static void stop_escalate_async(int pidfd) {
+    GThread* t = g_thread_new("flatpak-stop", stop_escalate_thread, GINT_TO_POINTER(pidfd));
+    g_thread_unref(t);
+}
+
+// Escalation for the no-pidfd fallback. Measured against GTK apps: gnome-calculator ignores
+// SIGTERM outright and exits only on the SIGKILL at the grace deadline, so a fallback that sent
+// SIGTERM alone would simply fail to stop such an app rather than degrade gracefully. Without a
+// pidfd we cannot pin the process, so re-check the start time before killing: if the pid has been
+// recycled during the grace period the kill would land on an unrelated process.
+struct FallbackKill {
+    pid_t pid;
+    unsigned long long start_time;
+    bool have_start;
+};
+
+static gpointer fallback_escalate_thread(gpointer data) {
+    std::unique_ptr<FallbackKill> fk(static_cast<FallbackKill*>(data));
+    g_usleep(static_cast<gulong>(kGraceMs) * 1000);
+    if (kill(fk->pid, 0) != 0) {
+        return nullptr;  // exited during the grace period
+    }
+    unsigned long long now = 0;
+    if (fk->have_start && (!read_start_time(fk->pid, &now) || now != fk->start_time)) {
+        return nullptr;  // pid recycled — not our process any more
+    }
+    kill(fk->pid, SIGKILL);
+    return nullptr;
+}
+
+static void fallback_escalate_async(pid_t pid, unsigned long long start_time, bool have_start) {
+    auto* fk = new FallbackKill{pid, start_time, have_start};
+    GThread* t = g_thread_new("flatpak-stop-fb", fallback_escalate_thread, fk);
+    g_thread_unref(t);
+}
+
+// Sends SIGTERM to one sandbox process and arms SIGKILL escalation. Returns true only if the
+// signal actually reached the intended process.
+static bool signal_instance_process(pid_t pid) {
+    unsigned long long start_before = 0;
+    const bool have_start = read_start_time(pid, &start_before);
+
+    int pidfd = pidfd_open_compat(pid);
+    if (pidfd >= 0) {
+        // The pidfd pins the process from here on. Re-read the start time now that it is pinned:
+        // if it still matches, the pid was not recycled between the instance file and the open.
+        unsigned long long start_after = 0;
+        if (have_start && (!read_start_time(pid, &start_after) || start_after != start_before)) {
+            close(pidfd);
+            return false;
+        }
+        if (pidfd_send_signal_compat(pidfd, SIGTERM) != 0) {
+            close(pidfd);
+            return false;
+        }
+        stop_escalate_async(pidfd);  // thread takes ownership, closes it
+        return true;
+    }
+    if (errno == ESRCH) {
+        return false;  // already gone
+    }
+    // ENOSYS on pre-5.3 kernels, EMFILE, a seccomp filter. Fall back to plain signals.
+    if (kill(pid, SIGTERM) != 0) {
+        return false;
+    }
+    fallback_escalate_async(pid, start_before, have_start);
+    return true;
+}
+
+void InstallationReader::stop(Dart_Port port, const char* app_id) {
+    g_autoptr(GPtrArray) instances = flatpak_instance_get_all();
+    int matched = 0;
+    int signalled = 0;
+    if (instances) {
+        for (guint i = 0; i < instances->len; i++) {
+            auto* inst = static_cast<FlatpakInstance*>(instances->pdata[i]);
+            if (g_strcmp0(flatpak_instance_get_app(inst), app_id) != 0) {
+                continue;
+            }
+            // Skip stale instance directories whose process is already gone, so we never signal a
+            // pid the kernel may since have handed to something unrelated.
+            if (!flatpak_instance_is_running(inst)) {
+                continue;
+            }
+            matched++;
+
+            // Prefer the sandboxed app process: SIGTERM has to reach the app itself for it to shut
+            // down on its own terms, and bwrap follows it down. Fall back to the outer bwrap pid
+            // when the child pid has not been published yet — coarser, but silently skipping a
+            // running instance while reporting success is worse.
+            int target = flatpak_instance_get_child_pid(inst);
+            if (target <= 0) {
+                target = flatpak_instance_get_pid(inst);
+            }
+            if (target <= 0) {
+                continue;
+            }
+            if (signal_instance_process(target)) {
+                signalled++;
+            }
+        }
+    }
+    if (matched == 0) {
+        post_error(port, "no running instance for app_id");
+        return;
+    }
+    if (signalled == 0) {
+        // Matched running instances but could not signal any. This is emphatically not a
+        // "not found" condition — reporting it as one tells the caller their app is not running
+        // when it is.
+        post_op_error(port, "matched running instance(s) but could not signal any");
+        return;
+    }
+    post_sentinel(port);
+}
+
+void InstallationReader::list_running(Dart_Port port) {
+    g_autoptr(GPtrArray) instances = flatpak_instance_get_all();
+    if (!instances) {
+        post_sentinel(port);
+        return;
+    }
+    for (guint i = 0; i < instances->len; i++) {
+        auto* inst = static_cast<FlatpakInstance*>(instances->pdata[i]);
+        FpInstance info;
+        info.appId = safe_str(flatpak_instance_get_app(inst));
+        info.instanceId = safe_str(flatpak_instance_get_id(inst));
+        info.arch = safe_str(flatpak_instance_get_arch(inst));
+        info.branch = safe_str(flatpak_instance_get_branch(inst));
+        info.commit = safe_str(flatpak_instance_get_commit(inst));
+        info.pid = flatpak_instance_get_pid(inst);
+        info.childPid = flatpak_instance_get_child_pid(inst);
+        info.isRunning = flatpak_instance_is_running(inst);
+        post_glaze(port, 0x01, info);
+    }
+    post_sentinel(port);
+}
+
 void InstallationReader::drop_caches() {
     g_autoptr(GError) err = nullptr;
     flatpak_installation_drop_caches(installation_, nullptr, &err);
@@ -370,6 +864,19 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port) {
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref) {
     static_cast<InstallationReader*>(handle)->fetch_remote_metadata(port, remote, ref);
+}
+
+void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
+                           const char* branch, const char* commit) {
+    static_cast<InstallationReader*>(handle)->launch(port, app_id, arch, branch, commit);
+}
+
+void flatpak_reader_stop(void* handle, Dart_Port port, const char* app_id) {
+    static_cast<InstallationReader*>(handle)->stop(port, app_id);
+}
+
+void flatpak_reader_list_running(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->list_running(port);
 }
 
 void flatpak_reader_drop_caches(void* handle) {

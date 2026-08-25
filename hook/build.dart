@@ -1,9 +1,3 @@
-// hook/build.dart — Native asset build hook for flatpak_dart.
-//
-// Automatically builds libflatpak_nc.so via CMake when the package is
-// consumed as a dependency. Requires: cmake, clang (or gcc), pkg-config,
-// libflatpak-dev, libglib2.0-dev.
-
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
@@ -11,87 +5,105 @@ import 'package:hooks/hooks.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
-    final packageRoot = input.packageRoot;
-    final nativeDir = packageRoot.resolve('native/');
-    final buildDir = input.outputDirectory.resolve('native_build/');
-    final buildDirPath = buildDir.toFilePath();
+    if (!input.config.buildCodeAssets) return;
 
-    // Ensure build directory exists
-    await Directory(buildDirPath).create(recursive: true);
-
-    // Find a C++ compiler
-    final cxx = _findCompiler(['clang++-19', 'clang++', 'g++']);
-    final cc = _findCompiler(['clang-19', 'clang', 'gcc']);
-
-    // Run CMake configure
-    final configResult = await Process.run('cmake', [
-      '-B',
-      buildDirPath,
-      '-S',
-      nativeDir.toFilePath(),
-      '-DCMAKE_BUILD_TYPE=Release',
-      if (cxx != null) '-DCMAKE_CXX_COMPILER=$cxx',
-      if (cc != null) '-DCMAKE_C_COMPILER=$cc',
-    ]);
-    if (configResult.exitCode != 0) {
-      throw Exception('CMake configure failed:\n${configResult.stderr}');
+    // Allow an embedder/build system
+    final skipDefine = input.userDefines['skip_native_build'];
+    if (skipDefine == true || skipDefine == 'true') {
+      stderr.writeln(
+        'skip_native_build user-define set — skipping native build.',
+      );
+      return;
     }
 
-    // Run CMake build
-    final cpuCount = Platform.numberOfProcessors;
-    final buildResult = await Process.run('cmake', [
+    final clearDefine = input.userDefines['clear_ambient_flags'];
+    final clearAmbientFlags = clearDefine == true || clearDefine == 'true';
+
+    final nativeDir = input.packageRoot.resolve('native/').toFilePath();
+    final buildDir =
+        input.outputDirectory.resolve('native_build/').toFilePath();
+
+    await Directory(buildDir).create(recursive: true);
+
+    final hasNinja = await _which('ninja');
+
+    if (!File('${buildDir}CMakeCache.txt').existsSync()) {
+      await _run('cmake', [
+        '-S',
+        nativeDir,
+        '-B',
+        buildDir,
+        '-DCMAKE_BUILD_TYPE=Release',
+        if (hasNinja) ...['-G', 'Ninja'],
+      ], clearAmbientFlags: clearAmbientFlags);
+    }
+
+    await _run('cmake', [
       '--build',
-      buildDirPath,
+      buildDir,
       '--parallel',
-      '$cpuCount',
-    ]);
-    if (buildResult.exitCode != 0) {
-      throw Exception('CMake build failed:\n${buildResult.stderr}');
+    ], clearAmbientFlags: clearAmbientFlags);
+
+    final libFile = File('${buildDir}libflatpak_nc.so');
+    if (!libFile.existsSync()) {
+      throw StateError('libflatpak_nc.so not found at ${libFile.path}');
     }
 
-    // Add source files as dependencies for rebuild detection
-    output.dependencies.add(nativeDir.resolve('CMakeLists.txt'));
-    for (final uri in await _globSources(nativeDir.resolve('src/'))) {
-      output.dependencies.add(uri);
-    }
-    for (final uri in await _globSources(nativeDir.resolve('include/'))) {
-      output.dependencies.add(uri);
-    }
-
-    // Register the built shared library as a code asset
-    final soPath = buildDir.resolve('libflatpak_nc.so');
     output.assets.code.add(
       CodeAsset(
         package: input.packageName,
         name: 'libflatpak_nc.so',
-        file: soPath,
         linkMode: DynamicLoadingBundled(),
+        file: libFile.uri,
       ),
     );
+
+    // Re-run the hook whenever any C/C++ source or CMake file changes.
+    for (final dir in ['src', 'include']) {
+      final d = Directory('$nativeDir$dir');
+      if (!d.existsSync()) continue;
+      for (final entity in d.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        final p = entity.path;
+        if (p.endsWith('.cpp') ||
+            p.endsWith('.cc') ||
+            p.endsWith('.c') ||
+            p.endsWith('.hpp') ||
+            p.endsWith('.h')) {
+          output.dependencies.add(entity.uri);
+        }
+      }
+    }
+    output.dependencies.add(Uri.file('${nativeDir}CMakeLists.txt'));
+
+    stderr.writeln('libflatpak_nc built: ${libFile.path}');
   });
 }
 
-String? _findCompiler(List<String> candidates) {
-  for (final name in candidates) {
-    final result = Process.runSync('sh', ['-c', 'command -v $name']);
-    if (result.exitCode == 0) {
-      return (result.stdout as String).trim();
-    }
+const _clearedFlagVars = {'CFLAGS': '', 'CXXFLAGS': '', 'LDFLAGS': ''};
+
+Future<void> _run(
+  String exe,
+  List<String> args, {
+  required bool clearAmbientFlags,
+}) async {
+  final p = await Process.start(
+    exe,
+    args,
+    mode: ProcessStartMode.inheritStdio,
+    environment: clearAmbientFlags ? _clearedFlagVars : null,
+  );
+  final code = await p.exitCode;
+  if (code != 0) {
+    throw ProcessException(exe, args, 'exit code $code', code);
   }
-  return null;
 }
 
-Future<List<Uri>> _globSources(Uri dir) async {
-  final directory = Directory.fromUri(dir);
-  if (!await directory.exists()) return [];
-  final files = <Uri>[];
-  await for (final entity in directory.list(recursive: true)) {
-    if (entity is File) {
-      final path = entity.path;
-      if (path.endsWith('.cpp') || path.endsWith('.c') || path.endsWith('.h')) {
-        files.add(entity.uri);
-      }
-    }
+Future<bool> _which(String exe) async {
+  try {
+    final r = await Process.run('sh', ['-c', 'command -v $exe']);
+    return r.exitCode == 0;
+  } catch (_) {
+    return false;
   }
-  return files;
 }

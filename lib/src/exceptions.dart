@@ -43,3 +43,14 @@ final class FlatpakNotFoundException extends FlatpakException {
 final class FlatpakRemoteException extends FlatpakException {
   const FlatpakRemoteException(super.message);
 }
+
+/// Launching an application failed.
+final class FlatpakLaunchException extends FlatpakException {
+  const FlatpakLaunchException(super.message);
+}
+
+/// Stopping an application failed. Distinct from [FlatpakNotFoundException]:
+/// running instances *were* matched, but none of them could be signalled.
+final class FlatpakStopException extends FlatpakException {
+  const FlatpakStopException(super.message);
+}
