@@ -112,8 +112,8 @@ class PermissionFlow {
   /// until answered, then the decision is persisted. Returns the final status
   /// of each requested permission.
   ///
-  /// Requires a listener on [requests] that calls [respond]; otherwise unset
-  /// permissions never resolve.
+  /// With no listener on [requests], unset permissions resolve to
+  /// [PermissionStatus.ask] and nothing is written to the store.
   Future<Map<String, PermissionStatus>> ensureLaunchPermissions(
     String appId,
   ) async {
@@ -122,7 +122,17 @@ class PermissionFlow {
       final target = permissionTarget(permission, appId);
       var status = await _store.get(target.table, target.id, appId);
       if (status == PermissionStatus.notSet) {
-        final granted = await _prompt(appId, permission, target);
+        if (!_controller.hasListener) {
+          result[permission] = PermissionStatus.ask;
+          continue;
+        }
+        final bool granted;
+        try {
+          granted = await _prompt(appId, permission, target);
+        } on _PromptCancelled {
+          result[permission] = PermissionStatus.ask;
+          continue;
+        }
         status = granted ? PermissionStatus.granted : PermissionStatus.denied;
         await _store.setStatus(target.table, target.id, appId, status);
       }
@@ -151,11 +161,18 @@ class PermissionFlow {
     return completer.future;
   }
 
+  /// Cancels every outstanding prompt. Cancelled prompts resolve to
+  /// [PermissionStatus.ask], not a denial, and persist nothing.
   Future<void> close() async {
     for (final c in _pending.values) {
-      if (!c.isCompleted) c.complete(false);
+      if (!c.isCompleted) c.completeError(const _PromptCancelled());
     }
     _pending.clear();
     await _controller.close();
   }
+}
+
+/// Raised into a pending prompt when [PermissionFlow.close] cancels it.
+class _PromptCancelled implements Exception {
+  const _PromptCancelled();
 }

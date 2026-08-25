@@ -4,6 +4,7 @@
 
 #include "installation_reader.h"
 
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/syscall.h>
@@ -16,7 +17,10 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "flatpak_bridge.h"
 #include "flatpak_post.h"
@@ -59,32 +63,153 @@ static const char* safe_str(const char* s) {
 // steal exit statuses from whatever else the embedder has spawned — so we wait
 // on the specific pid.
 //
-// TODO: this parks one thread per launched app for that app's entire lifetime.
-// Replace with a single reaper thread multiplexing pidfds via epoll, reaping
-// with waitpid(pid, &status, WNOHANG) on POLLIN, which scales to N running apps
-// with one thread.
-static gpointer reap_thread(gpointer data) {
-    auto pid = static_cast<GPid>(GPOINTER_TO_INT(data));
-    int status = 0;
-    // Retry on EINTR: a single unrestarted waitpid() would abandon the child as a zombie for the
-    // lifetime of the host process, which is exactly what this reaper exists to prevent. The Dart
-    // VM's profiler delivers SIGPROF, and embedders install handlers of their own.
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+// One reaper thread serves every launched app. It parks in poll() over the
+// launched children's pidfds and reaps with WNOHANG when one becomes readable,
+// so a session that launches N apps costs one thread rather than N. The thread
+// is started on the first launch and exits once the last child is reaped.
+namespace {
+
+class ChildReaper {
+   public:
+    static ChildReaper& instance() {
+        static ChildReaper reaper;
+        return reaper;
     }
-    return nullptr;
-}
+
+    void add(GPid pid) {
+        int pidfd = pidfd_open(pid);
+        if (pidfd < 0) {
+            // No pidfd (pre-5.3 kernel, or the child is already gone). Fall back to a dedicated
+            // blocking wait so the child is still reaped.
+            std::thread([pid] { wait_for(pid); }).detach();
+            return;
+        }
+
+        bool start = false;
+        {
+            std::lock_guard lk(mu_);
+            pending_.push_back({pid, pidfd});
+            if (!running_) {
+                running_ = true;
+                start = true;
+            }
+        }
+        if (start) {
+            std::thread(&ChildReaper::loop, this).detach();
+        }
+        wake();
+    }
+
+   private:
+    struct Child {
+        GPid pid;
+        int pidfd;
+    };
+
+    ChildReaper() {
+        // O_NONBLOCK on both ends: the reader drains until EAGAIN, and the writer must never
+        // block the launching thread if the pipe fills.
+        if (pipe2(wake_fds_, O_NONBLOCK | O_CLOEXEC) != 0) {
+            wake_fds_[0] = wake_fds_[1] = -1;
+        }
+    }
+
+    static int pidfd_open(pid_t pid) {
+        return static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+    }
+
+    static void wait_for(GPid pid) {
+        int status = 0;
+        // Retry on EINTR: an unrestarted waitpid() would abandon the child as a zombie for the
+        // lifetime of the host process, which is exactly what this reaper exists to prevent. The
+        // Dart VM's profiler delivers SIGPROF, and embedders install handlers of their own.
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+    }
+
+    void wake() {
+        if (wake_fds_[1] >= 0) {
+            const char b = 0;
+            ssize_t ignored = write(wake_fds_[1], &b, 1);
+            (void)ignored;
+        }
+    }
+
+    void loop() {
+        std::vector<Child> watched;
+        std::vector<pollfd> fds;
+
+        for (;;) {
+            {
+                std::lock_guard lk(mu_);
+                watched.insert(watched.end(), pending_.begin(), pending_.end());
+                pending_.clear();
+                if (watched.empty()) {
+                    running_ = false;
+                    return;
+                }
+            }
+
+            fds.clear();
+            fds.reserve(watched.size() + 1);
+            if (wake_fds_[0] >= 0) {
+                fds.push_back({wake_fds_[0], POLLIN, 0});
+            }
+            for (const auto& c : watched) {
+                fds.push_back({c.pidfd, POLLIN, 0});
+            }
+
+            if (poll(fds.data(), fds.size(), -1) < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                // poll() cannot recover; reap what we hold so nothing is left a zombie.
+                for (const auto& c : watched) {
+                    wait_for(c.pid);
+                    close(c.pidfd);
+                }
+                std::lock_guard lk(mu_);
+                running_ = false;
+                return;
+            }
+
+            const size_t offset = (wake_fds_[0] >= 0) ? 1 : 0;
+            if (offset == 1 && (fds[0].revents & POLLIN) != 0) {
+                char drain[64];
+                while (read(wake_fds_[0], drain, sizeof(drain)) > 0) {
+                }
+            }
+
+            size_t kept = 0;
+            for (size_t i = 0; i < watched.size(); i++) {
+                if (fds[i + offset].revents == 0) {
+                    watched[kept++] = watched[i];
+                    continue;
+                }
+                int status = 0;
+                while (waitpid(watched[i].pid, &status, WNOHANG) < 0 && errno == EINTR) {
+                }
+                close(watched[i].pidfd);
+            }
+            watched.resize(kept);
+        }
+    }
+
+    std::mutex mu_;
+    std::vector<Child> pending_;
+    bool running_ = false;
+    int wake_fds_[2]{-1, -1};
+};
+
+}  // namespace
 
 static void reap_async(GPid pid) {
-    GThread* t = g_thread_new("flatpak-reap", reap_thread, GINT_TO_POINTER(pid));
-    g_thread_unref(t);
+    ChildReaper::instance().add(pid);
 }
 
 // Resolve an installed app ref from optional arch/branch hints.
-//
-// get_current_installed_app() takes no arch, so using it whenever the branch is
-// empty would silently drop an explicit arch and return the host-arch ref. It is
-// therefore only used when neither hint narrows the lookup; an arch-only lookup
-// scans the installed apps instead.
+// get_current_installed_app() takes no arch, so it is only used when neither
+// hint narrows the lookup; an arch-only lookup scans the installed apps.
 static FlatpakInstalledRef* get_installed_app_ref(FlatpakInstallation* installation,
                                                   const char* app_id, const char* arch,
                                                   const char* branch, GError** error) {
@@ -1032,17 +1157,41 @@ void InstallationReader::list_missing_extensions(Dart_Port port, const char* app
         if (g_key_file_get_boolean(kf, group, "no-autodownload", nullptr)) {
             continue;  // optional extension, not required at app-install time
         }
+        // subdirectories=true: installable refs are <point>.<suffix>, enumerated from the remote
+        // rather than named here.
+        if (g_key_file_get_boolean(kf, group, "subdirectories", nullptr)) {
+            continue;
+        }
 
-        g_autofree char* version = g_key_file_get_string(kf, group, "version", nullptr);
-        const char* ext_branch = (version && *version) ? version : app_branch;
+        // "versions" is a ;-list of acceptable branches, any one of which satisfies the extension.
+        // "version" is the single-branch form. Neither key means "same branch as the app".
+        std::vector<std::string> branches;
+        g_auto(GStrv) versions =
+            g_key_file_get_string_list(kf, group, "versions", nullptr, nullptr);
+        for (gsize v = 0; versions && versions[v]; v++) {
+            if (*versions[v]) {
+                branches.emplace_back(versions[v]);
+            }
+        }
+        if (branches.empty()) {
+            g_autofree char* version = g_key_file_get_string(kf, group, "version", nullptr);
+            branches.emplace_back((version && *version) ? version : app_branch);
+        }
 
-        g_autoptr(GError) inst_err = nullptr;
-        g_autoptr(FlatpakInstalledRef) ext_iref =
-            flatpak_installation_get_installed_ref(installation_, FLATPAK_REF_KIND_RUNTIME, ext_id,
-                                                   app_arch, ext_branch, nullptr, &inst_err);
-        if (!ext_iref) {
+        bool installed = false;
+        for (const auto& ext_branch : branches) {
+            g_autoptr(GError) inst_err = nullptr;
+            g_autoptr(FlatpakInstalledRef) ext_iref = flatpak_installation_get_installed_ref(
+                installation_, FLATPAK_REF_KIND_RUNTIME, ext_id, app_arch, ext_branch.c_str(),
+                nullptr, &inst_err);
+            if (ext_iref) {
+                installed = true;
+                break;
+            }
+        }
+        if (!installed) {
             std::string ref_str =
-                std::string("runtime/") + ext_id + "/" + app_arch + "/" + ext_branch;
+                std::string("runtime/") + ext_id + "/" + app_arch + "/" + branches.front();
             post_string(port, ref_str.c_str());
         }
     }

@@ -19,8 +19,14 @@ Future<void> main(List<String> args) async {
     '$appId requests: ${requested.isEmpty ? '(none)' : requested.join(', ')}',
   );
 
-  await client.launchWithPermissions(appId);
-  print('Launched $appId');
+  final result = await client.launchWithPermissions(appId);
+  print('Launched $appId (instance ${result.instance.instanceId})');
+  if (result.denied.isNotEmpty) {
+    print('  denied:     ${result.denied.join(', ')}');
+  }
+  if (result.unresolved.isNotEmpty) {
+    print('  unresolved: ${result.unresolved.join(', ')}');
+  }
 
   await client.close();
 }

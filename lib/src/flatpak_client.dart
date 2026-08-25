@@ -115,11 +115,12 @@ class FlatpakClient {
 
   // ── AppStream catalog + icons ─────────────────────────────────────────
 
+  FlatpakAppStream? _appStream;
+
   /// AppStream metadata (icons, screenshots, releases) and installed-app
   /// icon resolution, backed by the appstream_dart engine.
-  late final FlatpakAppStream appStream = FlatpakAppStream.forName(
-    _installation,
-  );
+  FlatpakAppStream get appStream =>
+      _appStream ??= FlatpakAppStream.forName(_installation);
 
   // ── Portal permissions (xdg-desktop-portal PermissionStore) ────────────
 
@@ -139,14 +140,27 @@ class FlatpakClient {
 
   /// Resolve an app's requested permissions (prompting for unset ones via
   /// [permissionFlow]) and then [launch] it.
-  Future<void> launchWithPermissions(
+  ///
+  /// A denial does not abort the launch: the PermissionStore is advisory and
+  /// the portals enforce it when the app asks for the resource. Check
+  /// [LaunchWithPermissionsResult.denied] to gate the launch yourself.
+  Future<LaunchWithPermissionsResult> launchWithPermissions(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
   }) async {
-    await permissionFlow.ensureLaunchPermissions(appId);
-    await launch(appId, arch: arch, branch: branch, commit: commit);
+    final permissions = await permissionFlow.ensureLaunchPermissions(appId);
+    final instance = await launch(
+      appId,
+      arch: arch,
+      branch: branch,
+      commit: commit,
+    );
+    return LaunchWithPermissionsResult(
+      instance: instance,
+      permissions: permissions,
+    );
   }
 
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
@@ -283,7 +297,36 @@ class FlatpakClient {
   Future<void> close() async {
     _installation.close();
     _tx.close();
+    await _appStream?.close();
     await _permissionFlow?.close();
     await _permissionsStore?.close();
   }
+}
+
+/// Outcome of [FlatpakClient.launchWithPermissions].
+class LaunchWithPermissionsResult {
+  /// The instance libflatpak created for the launch.
+  final FlatpakInstance instance;
+
+  /// Resolved status of every permission the app declares.
+  final Map<String, PermissionStatus> permissions;
+
+  const LaunchWithPermissionsResult({
+    required this.instance,
+    required this.permissions,
+  });
+
+  /// Permissions the user explicitly denied.
+  List<String> get denied => [
+    for (final e in permissions.entries)
+      if (e.value == PermissionStatus.denied) e.key,
+  ];
+
+  /// Permissions still undecided — no listener answered the prompt, or the
+  /// prompt was cancelled.
+  List<String> get unresolved => [
+    for (final e in permissions.entries)
+      if (e.value == PermissionStatus.ask || e.value == PermissionStatus.notSet)
+        e.key,
+  ];
 }

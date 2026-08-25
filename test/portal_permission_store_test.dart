@@ -1,5 +1,5 @@
 @TestOn('vm')
-library portal_permission_store_test;
+library;
 
 import 'package:dbus/dbus.dart';
 import 'package:flatpak_dart/flatpak_dart.dart';
@@ -120,10 +120,10 @@ void main() {
     test('lookup decodes a{sas}', () async {
       fake.replies['Lookup'] = [
         DBusDict(DBusSignature('s'), DBusSignature('as'), {
-          DBusString('org.x'): _as(['yes']),
-          DBusString('org.y'): _as(['ask']),
+          const DBusString('org.x'): _as(['yes']),
+          const DBusString('org.y'): _as(['ask']),
         }),
-        DBusVariant(DBusString('')),
+        const DBusVariant(DBusString('')),
       ];
       final m = await portal.lookup('devices', 'camera');
       expect(m['org.x'], ['yes']);
@@ -133,7 +133,7 @@ void main() {
     test('lookup NotFound returns empty map', () async {
       fake.errors['Lookup'] = DBusMethodErrorResponse(
         'org.freedesktop.impl.portal.Error',
-        [DBusString('No entry for table')],
+        [const DBusString('No entry for table')],
       );
       expect(await portal.lookup('devices', 'camera'), isEmpty);
     });
@@ -143,6 +143,17 @@ void main() {
         _as(['camera', 'microphone']),
       ];
       expect(await portal.list('devices'), ['camera', 'microphone']);
+    });
+
+    test('UnknownMethod propagates instead of reading as notSet', () async {
+      fake.errors['GetPermission'] = DBusMethodErrorResponse(
+        'org.freedesktop.DBus.Error.UnknownMethod',
+        [const DBusString('No such method')],
+      );
+      await expectLater(
+        portal.get('devices', 'camera', 'org.x'),
+        throwsA(isA<DBusMethodResponseException>()),
+      );
     });
 
     test('delete swallows NotFound', () async {
@@ -156,9 +167,9 @@ void main() {
     test('check resolves each permission via lookup', () async {
       fake.replies['Lookup'] = [
         DBusDict(DBusSignature('s'), DBusSignature('as'), {
-          DBusString('org.x'): _as(['yes']),
+          const DBusString('org.x'): _as(['yes']),
         }),
-        DBusVariant(DBusString('')),
+        const DBusVariant(DBusString('')),
       ];
       final r = await portal.check('org.x', ['camera', 'location']);
       expect(r['camera'], PermissionStatus.granted);

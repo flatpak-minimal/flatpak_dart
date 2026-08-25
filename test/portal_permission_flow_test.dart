@@ -1,5 +1,5 @@
 @TestOn('vm')
-library portal_permission_flow_test;
+library;
 
 import 'package:dbus/dbus.dart';
 import 'package:flatpak_dart/flatpak_dart.dart';
@@ -140,5 +140,37 @@ void main() {
       expect(fake.calls.any((c) => c.member == 'SetPermission'), isFalse);
       await flow.close();
     });
+    test('no listener resolves to ask instead of hanging', () async {
+      final flow = flowFor([
+        _p('Session Bus Policy', 'org.freedesktop.portal.Location', 'talk'),
+      ]);
+      fake.replies['GetPermission'] = [DBusArray.string(const [])];
+
+      final result = await flow
+          .ensureLaunchPermissions('org.x')
+          .timeout(const Duration(seconds: 5));
+      expect(result['location'], PermissionStatus.ask);
+      expect(fake.calls.any((c) => c.member == 'SetPermission'), isFalse);
+      await flow.close();
+    });
+
+    test(
+      'close cancels a pending prompt without persisting a decision',
+      () async {
+        final flow = flowFor([
+          _p('Session Bus Policy', 'org.freedesktop.portal.Location', 'talk'),
+        ]);
+        fake.replies['GetPermission'] = [DBusArray.string(const [])];
+        flow.requests.listen((_) {}); // listens, never responds
+
+        final pending = flow.ensureLaunchPermissions('org.x');
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await flow.close();
+
+        final result = await pending.timeout(const Duration(seconds: 5));
+        expect(result['location'], PermissionStatus.ask);
+        expect(fake.calls.any((c) => c.member == 'SetPermission'), isFalse);
+      },
+    );
   });
 }

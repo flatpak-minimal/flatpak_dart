@@ -44,11 +44,17 @@ Payloads encoded with BEVE-Lite binary codec (glaze_meta.h)
 
 ```bash
 # Fedora
-sudo dnf install flatpak-devel glib2-devel cmake ninja-build clang
+sudo dnf install flatpak-devel glib2-devel sqlite-devel \
+    cmake ninja-build clang
 
 # Ubuntu / Debian
-sudo apt install libflatpak-dev libglib2.0-dev cmake ninja-build clang-19
+sudo apt install libflatpak-dev libglib2.0-dev libsqlite3-dev \
+    cmake ninja-build clang-19
 ```
+
+`sqlite-devel` / `libsqlite3-dev` is required by the `appstream_dart`
+dependency, whose build hook compiles against `sqlite3.h`. The remaining
+packages are for this package's own native bridge.
 
 ## Building
 

@@ -246,19 +246,33 @@ class PermissionStorePortal {
   // ── High-level helpers ──────────────────────────────────────────────────
 
   /// Resolve the status of each launch [permissions] entry for [app].
+  ///
+  /// Distinct resources are looked up concurrently, and permissions sharing a
+  /// resource (every device permission shares the `devices` table) reuse a
+  /// single round trip.
   Future<Map<String, PermissionStatus>> check(
     String app,
     List<String> permissions,
   ) async {
-    final out = <String, PermissionStatus>{};
-    for (final permission in permissions) {
-      final target = permissionTarget(permission, app);
-      final entries = await lookup(target.table, target.id);
-      out[permission] = PermissionStatus.fromPermissions(
-        entries[app] ?? const [],
-      );
-    }
-    return out;
+    final targets = {
+      for (final permission in permissions)
+        permission: permissionTarget(permission, app),
+    };
+    final resources = {
+      for (final t in targets.values) '${t.table}\u0000${t.id}': t,
+    };
+
+    final looked = await Future.wait([
+      for (final t in resources.values) lookup(t.table, t.id),
+    ]);
+    final byResource = Map.fromIterables(resources.keys, looked);
+
+    return {
+      for (final e in targets.entries)
+        e.key: PermissionStatus.fromPermissions(
+          byResource['${e.value.table}\u0000${e.value.id}']?[app] ?? const [],
+        ),
+    };
   }
 
   /// Remove every stored permission for [app] across all tables — call this on
@@ -271,9 +285,9 @@ class PermissionStorePortal {
       for (final id in await list(PermissionTable.devices))
         (table: PermissionTable.devices, id: id),
     ];
-    for (final target in targets) {
-      await delete(target.table, target.id, app);
-    }
+    await Future.wait([
+      for (final target in targets) delete(target.table, target.id, app),
+    ]);
   }
 
   Future<void> close() async {
@@ -285,12 +299,11 @@ class PermissionStorePortal {
       .toList();
 }
 
+/// Whether [e] means "no such entry" rather than "the call failed".
+/// `UnknownMethod` is not not-found: a portal that lacks the method can never
+/// answer, and an empty result would read as a permanent miss.
 bool _isNotFound(DBusMethodResponseException e) {
-  const names = {
-    'org.freedesktop.portal.Error.NotFound',
-    'org.freedesktop.DBus.Error.UnknownMethod',
-  };
-  if (names.contains(e.errorName)) return true;
+  if (e.errorName == 'org.freedesktop.portal.Error.NotFound') return true;
   final values = e.response.values;
   final msg = values.isNotEmpty && values.first is DBusString
       ? (values.first as DBusString).value

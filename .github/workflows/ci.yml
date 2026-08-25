@@ -35,7 +35,8 @@ jobs:
             cmake ninja-build \
             clang-19 clang-tidy-19 clang-format-19 \
             libflatpak-dev libglib2.0-dev \
-            libgtest-dev gcovr
+            libgtest-dev gcovr \
+            libsqlite3-dev
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub get
@@ -65,7 +66,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build clang-19 \
-            libflatpak-dev libglib2.0-dev libgtest-dev
+            libflatpak-dev libglib2.0-dev libgtest-dev \
+            libsqlite3-dev
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub get
@@ -94,7 +96,8 @@ jobs:
             git cmake ninja-build \
             clang clang-tools-extra \
             flatpak-devel glib2-devel \
-            gtest-devel unzip curl
+            gtest-devel unzip curl \
+            which sqlite-devel
       - uses: actions/checkout@v4
       - name: Install Dart SDK
         run: |
@@ -127,7 +130,8 @@ jobs:
             git cmake ninja-build \
             clang clang-tools-extra \
             flatpak-devel glib2-devel \
-            gtest-devel unzip curl
+            gtest-devel unzip curl \
+            which sqlite-devel
       - uses: actions/checkout@v4
       - name: Install Dart SDK (arm64)
         run: |
@@ -178,7 +182,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc g++ \
             libflatpak-dev libglib2.0-dev \
-            libgtest-dev gcovr
+            libgtest-dev gcovr \
+            libsqlite3-dev
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub global activate coverage

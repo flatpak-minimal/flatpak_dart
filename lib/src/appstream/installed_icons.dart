@@ -29,12 +29,14 @@ String? resolveInstalledIconPath(String deployDir, String appId) {
   ];
 
   for (final root in roots) {
+    // Scalable outranks every raster size.
+    final svg = p.join(deployDir, root, 'scalable', 'apps', '$appId.svg');
+    if (File(svg).existsSync()) return svg;
+
     for (final size in sizes) {
       final png = p.join(deployDir, root, size, 'apps', '$appId.png');
       if (File(png).existsSync()) return png;
     }
-    final svg = p.join(deployDir, root, 'scalable', 'apps', '$appId.svg');
-    if (File(svg).existsSync()) return svg;
   }
 
   const appInfoRoot = 'files/share/app-info/icons/flatpak';

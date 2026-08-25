@@ -1,5 +1,5 @@
 @TestOn('vm')
-library appstream_catalog_test;
+library;
 
 import 'dart:io';
 
@@ -15,8 +15,7 @@ void main() {
 
     setUp(() {
       base = Directory.systemTemp.createTempSync('fp_catalog_');
-      // Reusing the installation only for its name; no native call is made
-      // because catalogPath is a pure filesystem lookup.
+      // catalogPath is a pure filesystem lookup; the reader handle is lazy.
       appStream = FlatpakAppStream(FlatpakInstallation('user'), base.path);
     });
     tearDown(() => base.deleteSync(recursive: true));

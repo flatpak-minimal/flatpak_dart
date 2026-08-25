@@ -1,5 +1,5 @@
 @TestOn('vm')
-library appstream_icons_test;
+library;
 
 import 'dart:io';
 
@@ -41,7 +41,14 @@ void main() {
       expect(got, contains('256x256'));
     });
 
-    test('falls back to scalable svg', () {
+    test('finds a scalable svg', () {
+      touch('files/share/icons/hicolor/scalable/apps/org.gnome.Chess.svg');
+      final got = resolveInstalledIconPath(deploy.path, 'org.gnome.Chess');
+      expect(got, endsWith('scalable/apps/org.gnome.Chess.svg'));
+    });
+
+    test('prefers a scalable svg over any raster size', () {
+      touch('files/share/icons/hicolor/16x16/apps/org.gnome.Chess.png');
       touch('files/share/icons/hicolor/scalable/apps/org.gnome.Chess.svg');
       final got = resolveInstalledIconPath(deploy.path, 'org.gnome.Chess');
       expect(got, endsWith('scalable/apps/org.gnome.Chess.svg'));
