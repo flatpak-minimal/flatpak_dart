@@ -1,3 +1,34 @@
+## 0.2.0
+
+- Add app lifecycle control. `FlatpakClient.launch()` starts an installed
+  application in its sandbox and returns the `FlatpakInstance` libflatpak
+  created for it, so callers get the instance id and pids without polling.
+  `FlatpakClient.stop()` terminates every running instance of an app id, and
+  `FlatpakClient.listRunning()` lists running sandbox instances. Note that
+  flatpak instances are not scoped to an installation: `stop()` and
+  `listRunning()` both work host-wide, matching instances launched from the
+  user and system installations alike.
+- Launches run `flatpak_installation_launch_full()` with
+  `FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP` on a dedicated serial thread, so spawning
+  a sandbox never blocks the calling isolate. The launched process is reaped in
+  the background rather than left as a zombie.
+- `stop()` sends SIGTERM to the sandboxed app process and escalates to SIGKILL
+  after a 1.5 second grace period. Signalling goes through a pidfd where the
+  kernel supports it, which pins the exact process rather than a pid that may
+  have been recycled; process identity is verified against
+  `/proc/<pid>/stat` start time either way.
+- Add `FlatpakStopException`, thrown when running instances were matched but
+  none could be signalled. This is distinct from `FlatpakNotFoundException`,
+  which means nothing matched at all — previously the two were conflated and a
+  running app could be reported as not running.
+- The build hook accepts a `skip_native_build` user-define, for build systems
+  such as Yocto that cross-compile the native library out of band, and a
+  `clear_ambient_flags` user-define that drops inherited `CFLAGS`/`CXXFLAGS`/
+  `LDFLAGS` from a polluted host environment. The hook now uses Ninja when it
+  is available and no longer pins clang, so the native library is built with
+  the same toolchain as the target's libflatpak and their C++ runtimes match at
+  load time.
+
 ## 0.1.2
 
 - Widen the `hooks` and `code_assets` constraints to `>=0.20.1 <3.0.0` and
