@@ -346,8 +346,12 @@ class FlatpakInstallation {
   /// Terminate every running instance of [appId] across the host — flatpak
   /// instances are not scoped to an installation, so instances launched from
   /// the other installation are matched too.
-  /// Returns as soon as SIGTERM has been sent to every matched instance.
-  /// Throws [FlatpakNotFoundException] if no running instance was found.
+  /// Returns as soon as SIGTERM has been sent to every matched instance;
+  /// SIGKILL escalation continues in the background.
+  ///
+  /// Throws [FlatpakNotFoundException] if no running instance was found, and
+  /// [FlatpakStopException] if instances were found but none could be
+  /// signalled — the app is still running in that case.
   Future<void> stop(String appId) async {
     final port = ReceivePort('flatpak.stop');
     final completer = Completer<void>();
@@ -359,6 +363,12 @@ class FlatpakInstallation {
           final err = GlazeCodec.decodeError(msg, 1);
           if (!completer.isCompleted) {
             completer.completeError(FlatpakNotFoundException(err));
+          }
+          port.close();
+        case 0x03:
+          final err = GlazeCodec.decodeError(msg, 1);
+          if (!completer.isCompleted) {
+            completer.completeError(FlatpakStopException(err));
           }
           port.close();
         case 0xFF:

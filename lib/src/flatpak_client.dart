@@ -98,6 +98,9 @@ class FlatpakClient {
   ///
   /// Returns once SIGTERM has been sent; grace period + SIGKILL escalation
   /// continue in the background.
+  ///
+  /// Throws [FlatpakNotFoundException] if nothing matched, or
+  /// [FlatpakStopException] if instances matched but none could be signalled.
   Future<void> stop(String appId) => _installation.stop(appId);
 
   /// List running sandbox instances across the host.
