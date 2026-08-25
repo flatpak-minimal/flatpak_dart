@@ -3,7 +3,10 @@
 #pragma once
 #include <flatpak/flatpak.h>
 
-#include <asio.hpp>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <queue>
 #include <thread>
 
 #include "dart_api_dl.h"
@@ -32,10 +35,21 @@ class InstallationReader {
    private:
     FlatpakInstallation* installation_;
 
-    asio::io_context launch_io_;
-    asio::executor_work_guard<asio::io_context::executor_type> launch_work_guard_;
+    // ── Launch queue — one dedicated thread, serial ──────────────────────
+    // flatpak_installation_launch_full() blocks while bubblewrap sets the
+    // sandbox up, so it must not run on the Dart thread. Same shape as
+    // TransactionWorker (transaction_bridge.h), deliberately built on the
+    // standard library rather than an async runtime: every other thread in
+    // this bridge is a plain std::thread or GThread, and adding a system
+    // dependency for one serial queue would have to be satisfied by every
+    // consumer sysroot as well as CI.
     std::thread launch_thread_;
+    std::mutex launch_mu_;
+    std::condition_variable launch_cv_;
+    std::queue<std::function<void()>> launch_queue_;
+    bool launch_stop_{false};
 
+    void launch_loop();
     void launch_impl(Dart_Port port, const char* app_id, const char* arch, const char* branch,
                      const char* commit);
 };

@@ -44,6 +44,16 @@ static const char* safe_str(const char* s) {
     return s ? s : "";
 }
 
+// FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP leaves the bwrap process as our child, so
+// something in this process has to waitpid() it or it becomes a zombie for the
+// lifetime of the host app. waitpid(-1) would be wrong in a library — it would
+// steal exit statuses from whatever else the embedder has spawned — so we wait
+// on the specific pid.
+//
+// TODO: this parks one thread per launched app for that app's entire lifetime.
+// Replace with a single reaper thread multiplexing pidfds via epoll, reaping
+// with waitpid(pid, &status, WNOHANG) on POLLIN, which scales to N running apps
+// with one thread.
 static gpointer reap_thread(gpointer data) {
     auto pid = static_cast<GPid>(GPOINTER_TO_INT(data));
     int status = 0;
@@ -56,20 +66,41 @@ static void reap_async(GPid pid) {
     g_thread_unref(t);
 }
 
-// InstallationReader
+// ── InstallationReader ──────────────────────────────────────────────────────
 
 InstallationReader::InstallationReader(FlatpakInstallation* inst)
-    : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))),
-      launch_work_guard_(asio::make_work_guard(launch_io_)),
-      launch_thread_([this] { launch_io_.run(); }) {
+    : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
+    launch_thread_ = std::thread(&InstallationReader::launch_loop, this);
 }
 
 InstallationReader::~InstallationReader() {
-    launch_work_guard_.reset();
+    // Drain, then join, then unref: a launch already queued still gets to run
+    // (and post its reply) against a live installation_ before we let go of it.
+    {
+        std::lock_guard lk(launch_mu_);
+        launch_stop_ = true;
+    }
+    launch_cv_.notify_one();
     if (launch_thread_.joinable()) {
         launch_thread_.join();
     }
     g_object_unref(installation_);
+}
+
+void InstallationReader::launch_loop() {
+    for (;;) {
+        std::function<void()> job;
+        {
+            std::unique_lock lk(launch_mu_);
+            launch_cv_.wait(lk, [&] { return launch_stop_ || !launch_queue_.empty(); });
+            if (launch_queue_.empty()) {
+                return;  // stopping and drained
+            }
+            job = std::move(launch_queue_.front());
+            launch_queue_.pop();
+        }
+        job();
+    }
 }
 
 void InstallationReader::list_apps(Dart_Port port, bool include_runtimes) {
@@ -393,9 +424,14 @@ void InstallationReader::launch(Dart_Port port, const char* app_id, const char* 
     std::string archStr = safe_str(arch);
     std::string branchStr = safe_str(branch);
     std::string commitStr = safe_str(commit);
-    asio::post(launch_io_, [this, port, appIdStr, archStr, branchStr, commitStr]() {
-        launch_impl(port, appIdStr.c_str(), archStr.c_str(), branchStr.c_str(), commitStr.c_str());
-    });
+    {
+        std::lock_guard lk(launch_mu_);
+        launch_queue_.emplace([this, port, appIdStr, archStr, branchStr, commitStr]() {
+            launch_impl(port, appIdStr.c_str(), archStr.c_str(), branchStr.c_str(),
+                        commitStr.c_str());
+        });
+    }
+    launch_cv_.notify_one();
 }
 
 void InstallationReader::launch_impl(Dart_Port port, const char* app_id, const char* arch,
@@ -513,6 +549,13 @@ void InstallationReader::stop(Dart_Port port, const char* app_id) {
             }
             int pidfd = pidfd_open_compat(child_pid);
             if (pidfd < 0) {
+                // ESRCH means the app already exited — nothing to signal.
+                // Any other failure (ENOSYS on pre-5.3 kernels, EMFILE, a
+                // seccomp filter) falls back to a plain SIGTERM. Intentionally
+                // no SIGKILL escalation here: without a pidfd we cannot wait
+                // for the exit without racing pid reuse, and the supported
+                // targets (kernel >= 5.10) always take the pidfd path. An app
+                // that ignores SIGTERM on such a kernel survives stop().
                 if (errno != ESRCH) {
                     if (kill(child_pid, SIGTERM) == 0) {
                         found = true;

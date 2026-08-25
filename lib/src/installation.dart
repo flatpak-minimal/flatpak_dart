@@ -337,7 +337,9 @@ class FlatpakInstallation {
     return completer.future;
   }
 
-  /// Terminate every running instance of [appId].
+  /// Terminate every running instance of [appId] across the host — flatpak
+  /// instances are not scoped to an installation, so instances launched from
+  /// the other installation are matched too.
   /// Returns as soon as SIGTERM has been sent to every matched instance.
   /// Throws [FlatpakNotFoundException] if no running instance was found.
   Future<void> stop(String appId) async {
@@ -364,6 +366,10 @@ class FlatpakInstallation {
   }
 
   /// List running sandbox instances across the host.
+  ///
+  /// The native side only ever posts 0x01 payloads and the 0xFF sentinel here;
+  /// the 0x02 branch below is a defensive guard so an unexpected error frame
+  /// completes the future instead of leaving the caller hanging.
   Future<List<FlatpakInstance>> listRunning() async {
     final port = ReceivePort('flatpak.listRunning');
     final completer = Completer<List<FlatpakInstance>>();

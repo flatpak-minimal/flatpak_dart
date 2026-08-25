@@ -44,11 +44,18 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port);
 // Posts the raw metadata string as a 0x01 payload, then 0xFF sentinel.
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref);
-// Launch an installed app via flatpak_installation_launch(). Non-blocking:
-// spawns the sandbox and posts 0xFF on success or 0x02 on error.
+// Launch an installed app via flatpak_installation_launch_full() with
+// FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP. Returns immediately; the launch runs on the
+// reader's serial launch thread. On success posts the resulting FlatpakInstance
+// as a 0x01 FpInstance payload followed by the 0xFF sentinel. On failure posts
+// 0x02 if the app is not installed, or 0x03 if launch_full() itself failed.
 void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
                            const char* branch, const char* commit);
-// Terminate every running instance matching app_id (SIGTERM to the bwrap pid).
+// Terminate every running instance matching app_id, host-wide — flatpak
+// instances are not scoped to an installation, so this also matches instances
+// launched from the other installation. Signals the sandboxed app process
+// (FlatpakInstance child pid), not the outer bwrap pid, so the app sees the
+// SIGTERM and bwrap follows it down.
 // Posts 0xFF if at least one was signalled, otherwise 0x02.
 void flatpak_reader_stop(void* handle, Dart_Port port, const char* app_id);
 // List running sandbox instances (FlatpakInstance) via flatpak_instance_get_all().

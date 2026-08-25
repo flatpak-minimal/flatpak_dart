@@ -15,7 +15,7 @@ Future<void> main(List<String> args) async {
 
   print('\nStopping $appId ...');
   await client.stop(appId);
-  print('Stopped (SIGTERM sent; waiting up to 2 seconds for exit)');
+  print('Stopped (SIGTERM sent; SIGKILL follows after a 1.5s grace period)');
 
   await Future<void>.delayed(const Duration(seconds: 2));
 

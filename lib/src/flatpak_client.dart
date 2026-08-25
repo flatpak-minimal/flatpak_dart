@@ -88,8 +88,13 @@ class FlatpakClient {
     String commit = '',
   }) => _installation.launch(appId, arch: arch, branch: branch, commit: commit);
 
-  /// Stop every running instance of [appId]. Returns once SIGTERM has been
-  /// sent; grace period + SIGKILL escalation continue in the background.
+  /// Stop every running instance of [appId] across the host. Flatpak
+  /// instances are not scoped to an installation, so this stops matching
+  /// instances regardless of whether they were launched from the user or
+  /// system installation.
+  ///
+  /// Returns once SIGTERM has been sent; grace period + SIGKILL escalation
+  /// continue in the background.
   Future<void> stop(String appId) => _installation.stop(appId);
 
   /// List running sandbox instances across the host.
