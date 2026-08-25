@@ -491,7 +491,7 @@ static int reread_child_pid(const char* instance_id, const std::atomic<bool>& ca
         // this covers the same window in ~13 while leaving the common case (found on the first or
         // second probe) exactly as fast.
         int sleep_ms = std::min(delay_ms, kMaxWaitMs - waited);
-        g_usleep(sleep_ms * 1000);
+        g_usleep(static_cast<gulong>(sleep_ms) * 1000);
         waited += sleep_ms;
         delay_ms = std::min(delay_ms * 2, kMaxBackoffMs);
     }
@@ -676,7 +676,7 @@ struct FallbackKill {
 
 static gpointer fallback_escalate_thread(gpointer data) {
     std::unique_ptr<FallbackKill> fk(static_cast<FallbackKill*>(data));
-    g_usleep(kGraceMs * 1000);
+    g_usleep(static_cast<gulong>(kGraceMs) * 1000);
     if (kill(fk->pid, 0) != 0) {
         return nullptr;  // exited during the grace period
     }
