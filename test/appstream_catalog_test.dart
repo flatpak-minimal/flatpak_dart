@@ -14,6 +14,15 @@ void main() {
   // the host's own architecture rather than hard-coding one.
   final hostArch = hostFlatpakArch!;
 
+  // An architecture this machine cannot run natively, whatever it is. Tests
+  // that mean "foreign" must derive it — hard-coding one silently turns into
+  // "the host architecture" on a runner of that architecture, which is the
+  // exact mistake this feature exists to prevent.
+  final foreignArch = hostArch == 'aarch64' ? 'x86_64' : 'aarch64';
+
+  // The host's secondary native architecture: i386 on x86_64, arm on aarch64.
+  final secondaryArch = compatibleArches(hostArch).skip(1).firstOrNull;
+
   group('FlatpakAppStream.catalogPath', () {
     late Directory base;
     late FlatpakAppStream appStream;
@@ -52,7 +61,7 @@ void main() {
     });
 
     test('finds a flat-layout catalog with no arch given', () {
-      writeFlatCatalog('fedora', 'x86_64', 'appstream.xml.gz');
+      writeFlatCatalog('fedora', hostArch, 'appstream.xml.gz');
       expect(appStream.catalogPath('fedora'), isNotNull);
     });
 
@@ -103,22 +112,22 @@ void main() {
     // that cannot be installed, let alone run.
     test('a foreign-arch catalog is not offered', () {
       writeCatalog('flathub', 'mips64el', 'appstream.xml');
-      writeCatalog('flathub', 's390x', 'appstream.xml');
+      writeCatalog('flathub', 'sparc64', 'appstream.xml');
       expect(appStream.catalogPath('flathub'), isNull);
     });
 
     test('native policy refuses even a compatible arch', () {
+      // i386 on x86_64, arm on aarch64: an architecture the host runs
+      // natively but that is not the host's own.
+      if (secondaryArch == null) return;
+      writeCatalog('flathub', secondaryArch, 'appstream.xml');
       final native = FlatpakAppStream(
         FlatpakInstallation('user'),
         base.path,
         archPolicy: ArchPolicy.native,
       );
-      // i386 runs natively on x86_64, so `compatible` accepts it...
-      writeCatalog('flathub', 'i386', 'appstream.xml');
-      if (hostArch == 'x86_64') {
-        expect(appStream.catalogPath('flathub'), contains('/i386/'));
-        expect(native.catalogPath('flathub'), isNull);
-      }
+      expect(appStream.catalogPath('flathub'), contains('/$secondaryArch/'));
+      expect(native.catalogPath('flathub'), isNull);
     });
 
     // The positive case of the whole feature: an architecture is offered only
@@ -140,7 +149,7 @@ void main() {
     );
 
     test('emulated still refuses an arch the kernel cannot execute', () {
-      writeCatalog('flathub', 'aarch64', 'appstream.xml');
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
       final noQemu = FlatpakAppStream(
         FlatpakInstallation('user'),
         base.path,
@@ -155,16 +164,87 @@ void main() {
     // machine runs directly.
     test('a native catalog outranks an emulated one', () {
       writeCatalog('flathub', hostArch, 'appstream.xml');
-      writeCatalog('flathub', 'aarch64', 'appstream.xml');
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
       final emulated = FlatpakAppStream(
         FlatpakInstallation('user'),
         base.path,
         archPolicy: ArchPolicy.emulated,
-        executableArches: const {'aarch64'},
+        executableArches: {foreignArch},
       );
       expect(emulated.usableArches('flathub').first, hostArch);
       expect(emulated.catalogPath('flathub'), contains('/$hostArch/'));
     });
+
+    // Proven for both architectures on whatever machine runs the tests, rather
+    // than hoping CI covers both. Two of these assertions previously passed
+    // only because the developer machine was x86_64.
+    for (final host in const ['x86_64', 'aarch64']) {
+      final foreign = host == 'aarch64' ? 'x86_64' : 'aarch64';
+      final secondary = compatibleArches(host)[1];
+
+      FlatpakAppStream asHost(
+        ArchPolicy policy, {
+        Set<String> executable = const {},
+      }) => FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: policy,
+        hostArch: host,
+        executableArches: executable,
+      );
+
+      group('as a $host host', () {
+        test('compatible takes the host arch', () {
+          writeCatalog('flathub', host, 'appstream.xml');
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(asHost(ArchPolicy.compatible).usableArches('flathub'), [host]);
+        });
+
+        test('compatible also takes the secondary native arch', () {
+          writeCatalog('flathub', secondary, 'appstream.xml');
+          expect(asHost(ArchPolicy.compatible).usableArches('flathub'), [
+            secondary,
+          ]);
+        });
+
+        test('native refuses the secondary arch', () {
+          writeCatalog('flathub', secondary, 'appstream.xml');
+          expect(asHost(ArchPolicy.native).usableArches('flathub'), isEmpty);
+        });
+
+        test('compatible refuses the foreign arch', () {
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(
+            asHost(ArchPolicy.compatible).usableArches('flathub'),
+            isEmpty,
+          );
+        });
+
+        test('emulated takes the foreign arch only when executable', () {
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(asHost(ArchPolicy.emulated).usableArches('flathub'), isEmpty);
+          expect(
+            asHost(
+              ArchPolicy.emulated,
+              executable: {foreign},
+            ).usableArches('flathub'),
+            [foreign],
+          );
+        });
+
+        test('the host outranks an executable foreign arch', () {
+          writeCatalog('flathub', host, 'appstream.xml');
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(
+            asHost(
+              ArchPolicy.emulated,
+              executable: {foreign},
+            ).usableArches('flathub').first,
+            host,
+          );
+        });
+      });
+    }
 
     test('usableArches reports only what is both allowed and downloaded', () {
       writeCatalog('flathub', hostArch, 'appstream.xml');

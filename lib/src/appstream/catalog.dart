@@ -23,24 +23,34 @@ class FlatpakAppStream {
     this.installationPath, {
     this.archPolicy = ArchPolicy.compatible,
     Set<String>? executableArches,
-  }) : _executableArches = executableArches;
+    String? hostArch,
+  }) : _executableArches = executableArches,
+       _hostArch = hostArch;
 
   /// Build for a named installation (`user` / `system` / absolute path).
   factory FlatpakAppStream.forName(
     FlatpakInstallation installation, {
     ArchPolicy archPolicy = ArchPolicy.compatible,
     Set<String>? executableArches,
+    String? hostArch,
   }) => FlatpakAppStream(
     installation,
     installationPathFor(installation.name),
     archPolicy: archPolicy,
     executableArches: executableArches,
+    hostArch: hostArch,
   );
 
   /// Overrides binfmt_misc detection. Null means "ask the kernel", which is
   /// what production does; a test supplies a set so the emulated policy does
   /// not depend on whether the machine running the tests has qemu installed.
   final Set<String>? _executableArches;
+
+  /// Overrides the detected host architecture. Null means "ask uname". Lets a
+  /// test check how an aarch64 machine behaves without being one — the
+  /// alternative is trusting that CI happens to run on both, which is how the
+  /// architecture assumptions in this file's own tests went unnoticed.
+  final String? _hostArch;
 
   final FlatpakInstallation _installation;
 
@@ -124,6 +134,7 @@ class FlatpakAppStream {
     final present = downloadedArches(remote);
     final candidates = candidateArches(
       archPolicy,
+      hostArch: _hostArch,
       executableArches: _executableArches,
     );
     return [
