@@ -2,9 +2,7 @@
 // Reader is created once; each operation gets its own ReceivePort.
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -12,6 +10,7 @@ import 'application.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart';
+import 'host_flatpak.dart';
 import 'installation_info.dart';
 import 'instance.dart';
 import 'permissions.dart';
@@ -21,7 +20,18 @@ class FlatpakInstallation {
   final String name;
   late final Pointer<Void> _handle = FlatpakBindings.readerCreate(name);
 
-  FlatpakInstallation(this.name);
+  /// Set when this process is itself sandboxed, in which case launch/stop/list
+  /// are delegated to the host `flatpak` CLI — libflatpak cannot do any of the
+  /// three from inside a sandbox. Null on the host, where libflatpak is used
+  /// directly. Injectable so the delegation is testable off a real sandbox.
+  final HostFlatpak? _host;
+
+  FlatpakInstallation(this.name, {HostFlatpak? host})
+    : _host = host ?? (HostFlatpak.isSandboxed ? HostFlatpak() : null);
+
+  /// Builds an installation that always delegates to [host], regardless of
+  /// whether this process is really sandboxed.
+  FlatpakInstallation.delegatingTo(this.name, HostFlatpak host) : _host = host;
 
   /// Invalidate libflatpak's cached data so subsequent reads return fresh results.
   void dropCaches() => FlatpakBindings.readerDropCaches(_handle);
@@ -305,8 +315,8 @@ class FlatpakInstallation {
     // Inside a sandbox that fails with "failed to execute child process
     // bwrap", so delegate to the host through the Flatpak portal instead.
     // Needs --talk-name=org.freedesktop.Flatpak in the caller's finish-args.
-    if (_isSandboxed) {
-      return _launchOnHost(appId, arch: arch, branch: branch, commit: commit);
+    if (_host != null) {
+      return _host.launch(appId, arch: arch, branch: branch, commit: commit);
     }
 
     final port = ReceivePort('flatpak.launch');
@@ -358,119 +368,6 @@ class FlatpakInstallation {
     return completer.future;
   }
 
-  /// True when this process is itself running inside a Flatpak sandbox.
-  static bool get _isSandboxed => File('/.flatpak-info').existsSync();
-
-  /// How long a host-delegated `flatpak run` gets to fail before the launch is
-  /// reported as successful. `flatpak run` stays in the foreground for the
-  /// app's lifetime, so there is no success exit code to wait for.
-  static const _hostLaunchSettle = Duration(milliseconds: 1500);
-
-  static const _hostPsColumns = hostPsColumns;
-
-  /// Run [command] on the host through the Flatpak portal.
-  /// Requires `--talk-name=org.freedesktop.Flatpak` in the caller's finish-args.
-  Future<ProcessResult> _runOnHost(List<String> command) async {
-    try {
-      return await Process.run('flatpak-spawn', ['--host', ...command]);
-    } on ProcessException catch (e) {
-      throw FlatpakLaunchException(
-        'flatpak-spawn --host ${command.first} failed: ${e.message}',
-      );
-    }
-  }
-
-  /// Launch [appId] on the host via `flatpak-spawn --host flatpak run`.
-  ///
-  /// Returns the instance flatpak registered for the launch. When it has not
-  /// appeared in `flatpak ps` yet the returned instance carries only what is
-  /// known at spawn time and [FlatpakInstance.instanceId] is empty.
-  Future<FlatpakInstance> _launchOnHost(
-    String appId, {
-    String arch = '',
-    String branch = '',
-    String commit = '',
-  }) async {
-    final args = <String>['--host', 'flatpak', 'run'];
-    if (arch.isNotEmpty) args.add('--arch=$arch');
-    if (branch.isNotEmpty) args.add('--branch=$branch');
-    if (commit.isNotEmpty) args.add('--commit=$commit');
-    args.add(appId);
-
-    final Process proc;
-    try {
-      proc = await Process.start('flatpak-spawn', args);
-    } on ProcessException catch (e) {
-      throw FlatpakLaunchException(
-        'flatpak-spawn --host failed for "$appId": ${e.message}',
-      );
-    }
-
-    final stderrBuf = StringBuffer();
-    final stderrDone = proc.stderr
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .forEach(stderrBuf.write);
-    unawaited(proc.stdout.drain<void>());
-
-    const stillRunning = -1;
-    final exitCode = await proc.exitCode.timeout(
-      _hostLaunchSettle,
-      onTimeout: () => stillRunning,
-    );
-    if (exitCode > 0) {
-      await stderrDone;
-      final detail = stderrBuf.toString().trim();
-      throw FlatpakLaunchException(
-        'flatpak run "$appId" on the host exited $exitCode'
-        '${detail.isEmpty ? '' : ': $detail'}',
-      );
-    }
-
-    for (final instance in await _listRunningOnHost()) {
-      if (instance.appId == appId) return instance;
-    }
-    return FlatpakInstance(
-      appId: appId,
-      instanceId: '',
-      arch: arch,
-      branch: branch,
-      commit: commit,
-      pid: proc.pid,
-      isRunning: exitCode == stillRunning,
-    );
-  }
-
-  /// `flatpak ps` on the host, parsed into instances.
-  Future<List<FlatpakInstance>> _listRunningOnHost() async {
-    final result = await _runOnHost([
-      'flatpak',
-      'ps',
-      '--columns=$_hostPsColumns',
-    ]);
-    if (result.exitCode != 0) {
-      throw FlatpakLaunchException(
-        'flatpak ps on the host exited ${result.exitCode}: '
-        '${(result.stderr as String).trim()}',
-      );
-    }
-
-    return parseHostPsOutput(result.stdout as String);
-  }
-
-  /// `flatpak kill` on the host.
-  Future<void> _stopOnHost(String appId) async {
-    final result = await _runOnHost(['flatpak', 'kill', appId]);
-    if (result.exitCode == 0) return;
-    final detail = (result.stderr as String).trim();
-    if (detail.contains('not running') || detail.contains('No such instance')) {
-      throw FlatpakNotFoundException('no running instance for "$appId"');
-    }
-    throw FlatpakStopException(
-      'flatpak kill "$appId" on the host exited ${result.exitCode}'
-      '${detail.isEmpty ? '' : ': $detail'}',
-    );
-  }
-
   /// Terminate every running instance of [appId] across the host — flatpak
   /// instances are not scoped to an installation, so instances launched from
   /// the other installation are matched too.
@@ -483,7 +380,7 @@ class FlatpakInstallation {
   Future<void> stop(String appId) async {
     // flatpak_instance_get_all() reads $XDG_RUNTIME_DIR/.flatpak, which inside
     // a sandbox holds only this process's own instance.
-    if (_isSandboxed) return _stopOnHost(appId);
+    if (_host != null) return _host.stop(appId);
 
     final port = ReceivePort('flatpak.stop');
     final completer = Completer<void>();
@@ -519,7 +416,7 @@ class FlatpakInstallation {
   /// the 0x02 branch below is a defensive guard so an unexpected error frame
   /// completes the future instead of leaving the caller hanging.
   Future<List<FlatpakInstance>> listRunning() async {
-    if (_isSandboxed) return _listRunningOnHost();
+    if (_host != null) return _host.listRunning();
 
     final port = ReceivePort('flatpak.listRunning');
     final completer = Completer<List<FlatpakInstance>>();
@@ -737,42 +634,4 @@ class FlatpakInstallation {
   void close() {
     FlatpakBindings.readerDestroy(_handle);
   }
-}
-
-/// Column order requested from `flatpak ps` by the sandboxed [listRunning]
-/// path. [parseHostPsOutput] is positional, so the two must stay in step.
-const hostPsColumns = 'application,instance,arch,branch,commit,pid,child-pid';
-
-/// Parses `flatpak ps --columns=[hostPsColumns]` output.
-///
-/// Columns are whitespace separated and none of the requested fields can
-/// contain whitespace. Rows that do not match the expected shape — a header
-/// row, or output from a flatpak whose column set differs — are skipped rather
-/// than mis-bound to the wrong fields.
-List<FlatpakInstance> parseHostPsOutput(String stdout) {
-  const columnCount = 7;
-  final instances = <FlatpakInstance>[];
-
-  for (final line in const LineSplitter().convert(stdout)) {
-    final trimmed = line.trim();
-    if (trimmed.isEmpty) continue;
-    final cols = trimmed.split(RegExp(r'\s+'));
-    if (cols.length != columnCount) continue;
-    final pid = int.tryParse(cols[5]);
-    final childPid = int.tryParse(cols[6]);
-    if (pid == null || childPid == null) continue;
-    instances.add(
-      FlatpakInstance(
-        appId: cols[0],
-        instanceId: cols[1],
-        arch: cols[2],
-        branch: cols[3],
-        commit: cols[4],
-        pid: pid,
-        childPid: childPid,
-        isRunning: true,
-      ),
-    );
-  }
-  return instances;
 }
