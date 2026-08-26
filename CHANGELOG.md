@@ -29,6 +29,15 @@
   `refreshArchSupport()` for callers that know an emulator was installed,
   removed or toggled.
 
+  `checkRunnable()` answers the whole question rather than just the
+  architecture half. Architecture support is necessary but not sufficient: a
+  foreign-arch launch is stopped by the missing runtime for that architecture,
+  before emulation is ever reached, and installing an app does not bring one
+  along. It reports which of the two is missing, so a caller can tell a
+  terminal problem from one `ensureRuntime()` fixes. It costs two native calls
+  and is deliberately not folded into `listApplications()`, which filters on
+  architecture alone — pure and free.
+
   This also fixes catalog selection picking the alphabetically first
   architecture directory when the host's own was absent, which could serve
   x86_64 apps on an aarch64 machine.

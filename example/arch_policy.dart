@@ -45,6 +45,22 @@ Future<void> main() async {
     print('  $mark ${app.ref.name.padRight(28)} ${app.ref.arch}');
   }
 
+  // Architecture is only half the question. The runtime an app declares must
+  // also be installed for that architecture — installing an app does not bring
+  // one along, and that is what actually stops a foreign-arch launch.
+  print('\nLaunch readiness:');
+  for (final app in all) {
+    final r = await client.checkRunnable(app.ref.name);
+    final why = switch (r.blocker) {
+      LaunchBlocker.none => 'ready',
+      LaunchBlocker.notInstalled => 'not installed',
+      LaunchBlocker.architecture => 'cannot run ${r.arch} here',
+      LaunchBlocker.runtimeMissing => 'needs ${r.runtimeRef}',
+    };
+    print('  ${app.ref.name.padRight(28)} $why');
+  }
+  // A runtimeMissing blocker is one download away: client.ensureRuntime(id).
+
   // Nothing about binfmt_misc can be watched cheaply, so after installing or
   // removing an emulator tell the client to look again:
   client.refreshArchSupport();

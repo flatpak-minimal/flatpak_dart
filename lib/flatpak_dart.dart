@@ -19,6 +19,7 @@ export 'src/permissions.dart';
 export 'src/portal/permission_flow.dart';
 export 'src/portal/permission_store.dart';
 export 'src/remote.dart';
+export 'src/runnability.dart';
 export 'src/remote_manager.dart';
 export 'src/storage_info.dart';
 export 'src/transaction.dart' hide TransactionBridge, VoidCallback;

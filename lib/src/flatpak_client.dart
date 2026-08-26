@@ -28,6 +28,7 @@ import 'permissions.dart';
 import 'portal/permission_flow.dart';
 import 'portal/permission_store.dart';
 import 'remote.dart';
+import 'runnability.dart';
 import 'remote_manager.dart';
 import 'storage_info.dart';
 import 'transaction.dart';
@@ -79,7 +80,74 @@ class FlatpakClient {
   }
 
   /// Whether an app built for [arch] can run here under [archPolicy].
+  ///
+  /// Cheap and synchronous, but only half the question — see [checkRunnable]
+  /// for the runtime side.
   bool canRunArch(String arch) => appStream.canRunArch(arch);
+
+  /// Whether [appId] can actually be launched, and if not, what is missing.
+  ///
+  /// Checks both gates: the architecture this machine can execute, and whether
+  /// the runtime the app declares is installed for that architecture. The
+  /// second is the one that stops a foreign-arch launch in practice, and it is
+  /// not implied by the app being installed — `flatpak install --arch=aarch64`
+  /// leaves an app whose runtime was never fetched.
+  ///
+  /// Costs two native round trips, so it is not folded into
+  /// [listApplications]: that filters on architecture alone, which is pure and
+  /// free. Call this for the app a user is about to launch, or to label a row.
+  Future<AppRunnability> checkRunnable(
+    String appId, {
+    String arch = '',
+    String branch = '',
+  }) async {
+    final FlatpakApplication app;
+    try {
+      app = await _installation.getAppInfo(appId, arch: arch, branch: branch);
+    } on FlatpakNotFoundException {
+      return resolveRunnability(
+        appId: appId,
+        arch: arch,
+        installed: false,
+        archSupported: arch.isEmpty || canRunArch(arch),
+      );
+    }
+
+    final appArch = app.ref.arch;
+    if (appArch.isNotEmpty && !canRunArch(appArch)) {
+      // Terminal, so the runtime lookup below is skipped rather than asked and
+      // discarded — that is two native round trips saved per unrunnable app.
+      return resolveRunnability(
+        appId: appId,
+        arch: appArch,
+        installed: true,
+        archSupported: false,
+      );
+    }
+
+    String? runtimeRef;
+    try {
+      runtimeRef = await _installation.getRuntimeRef(
+        appId,
+        arch: arch,
+        branch: branch,
+      );
+    } on FlatpakException {
+      // Metadata declares no runtime: malformed rather than a reason to refuse.
+      runtimeRef = null;
+    }
+
+    return resolveRunnability(
+      appId: appId,
+      arch: appArch,
+      installed: true,
+      archSupported: true,
+      runtimeRef: runtimeRef,
+      runtimeInstalled:
+          runtimeRef != null &&
+          await _installation.isRefInstalled('runtime/$runtimeRef'),
+    );
+  }
 
   /// Forgets cached emulation support; the next architecture question asks the
   /// kernel again. See [FlatpakAppStream.refreshArchSupport].
