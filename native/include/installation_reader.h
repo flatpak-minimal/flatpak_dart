@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -12,6 +13,7 @@
 
 #include "dart_api_dl.h"
 #include "flatpak_types.h"
+#include "serial_queue.h"
 
 class InstallationReader {
    public:
@@ -28,7 +30,8 @@ class InstallationReader {
     void check_updates(Dart_Port port);
     void fetch_remote_metadata(Dart_Port port, const char* remote, const char* ref);
     // Refresh the downloaded AppStream catalog for a remote (empty arch = default).
-    // Wraps flatpak_installation_update_appstream_sync(); posts 0xFF or 0x02.
+    // Returns immediately; the network pull runs on the reader's serial appstream thread and
+    // posts 0xFF on success or 0x02 on error.
     void refresh_appstream(Dart_Port port, const char* remote, const char* arch);
     void launch(Dart_Port port, const char* app_id, const char* arch, const char* branch,
                 const char* commit);
@@ -89,4 +92,25 @@ class InstallationReader {
     void launch_loop();
     void launch_impl(Dart_Port port, const char* app_id, const char* arch, const char* branch,
                      const char* commit);
+
+    // ── AppStream refresh queue — one dedicated thread, serial ───────────
+    // flatpak_installation_update_appstream_sync() pulls a remote's entire catalog and icon
+    // cache over the network. That is seconds on a small remote and minutes on Flathub, so by
+    // the same rule that moved launch() off the Dart thread it cannot run there either.
+    //
+    // It gets its own queue rather than sharing the launch queue: a catalog refresh must never
+    // put a launch behind it. SerialQueue rather than another hand-rolled loop — the launch
+    // queue above predates it and could adopt it too.
+    struct AppstreamRequest {
+        Dart_Port port;
+        std::string remote;
+        std::string arch;
+    };
+
+    // Held by pointer because its handlers capture `this`, so it can only be built once the
+    // rest of the object is. Stopped explicitly in the destructor body, before installation_
+    // is dropped — a member's own destructor would run too late.
+    std::unique_ptr<SerialQueue<AppstreamRequest>> appstream_queue_;
+
+    void refresh_appstream_impl(Dart_Port port, const char* remote, const char* arch);
 };

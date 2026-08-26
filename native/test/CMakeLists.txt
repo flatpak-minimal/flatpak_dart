@@ -18,6 +18,36 @@ if(ENABLE_COVERAGE)
 endif()
 add_test(NAME test_remote_types COMMAND test_remote_types)
 
+add_executable(test_serial_queue test_serial_queue.cpp)
+target_include_directories(test_serial_queue PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_serial_queue PRIVATE GTest::gtest_main pthread)
+apply_sanitizers(test_serial_queue)
+if(ENABLE_COVERAGE)
+    enable_coverage(test_serial_queue)
+endif()
+add_test(NAME test_serial_queue COMMAND test_serial_queue)
+
+add_executable(test_child_reaper test_child_reaper.cpp ${CMAKE_SOURCE_DIR}/src/child_reaper.cpp)
+target_include_directories(test_child_reaper PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_child_reaper PRIVATE GTest::gtest_main pthread)
+apply_sanitizers(test_child_reaper)
+if(ENABLE_COVERAGE)
+    enable_coverage(test_child_reaper)
+endif()
+add_test(NAME test_child_reaper COMMAND test_child_reaper)
+
+add_executable(test_app_metadata test_app_metadata.cpp ${CMAKE_SOURCE_DIR}/src/app_metadata.cpp)
+target_include_directories(test_app_metadata PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_app_metadata PRIVATE
+    GTest::gtest_main
+    PkgConfig::GLIB
+)
+apply_sanitizers(test_app_metadata)
+if(ENABLE_COVERAGE)
+    enable_coverage(test_app_metadata)
+endif()
+add_test(NAME test_app_metadata COMMAND test_app_metadata)
+
 add_executable(test_installation_reader test_installation_reader.cpp)
 target_include_directories(test_installation_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_installation_reader PRIVATE

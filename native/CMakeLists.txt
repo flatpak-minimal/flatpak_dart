@@ -27,6 +27,8 @@ set_target_properties(dart_api_dl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(flatpak_nc SHARED
     src/flatpak_bridge.cpp
     src/transaction_bridge.cpp    # FlatpakTransaction GObject signals → Dart
+    src/app_metadata.cpp          # Pure readers over an app's metadata keyfile
+    src/child_reaper.cpp          # One thread reaping every child we spawn
     src/installation_reader.cpp   # All read-only libflatpak queries
     src/user_remote_bridge.cpp    # Remote CRUD for user installations
     $<TARGET_OBJECTS:dart_api_dl>

@@ -22,6 +22,8 @@
 #include <thread>
 #include <vector>
 
+#include "app_metadata.h"
+#include "child_reaper.h"
 #include "flatpak_bridge.h"
 #include "flatpak_post.h"
 
@@ -56,152 +58,6 @@ static void post_string(Dart_Port port, const char* s) {
 static const char* safe_str(const char* s) {
     return s ? s : "";
 }
-
-// FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP leaves the bwrap process as our child, so
-// something in this process has to waitpid() it or it becomes a zombie for the
-// lifetime of the host app. waitpid(-1) would be wrong in a library — it would
-// steal exit statuses from whatever else the embedder has spawned — so we wait
-// on the specific pid.
-//
-// One reaper thread serves every launched app. It parks in poll() over the
-// launched children's pidfds and reaps with WNOHANG when one becomes readable,
-// so a session that launches N apps costs one thread rather than N. The thread
-// is started on the first launch and exits once the last child is reaped.
-namespace {
-
-class ChildReaper {
-   public:
-    static ChildReaper& instance() {
-        static ChildReaper reaper;
-        return reaper;
-    }
-
-    void add(GPid pid) {
-        int pidfd = pidfd_open(pid);
-        if (pidfd < 0) {
-            // No pidfd (pre-5.3 kernel, or the child is already gone). Fall back to a dedicated
-            // blocking wait so the child is still reaped.
-            std::thread([pid] { wait_for(pid); }).detach();
-            return;
-        }
-
-        bool start = false;
-        {
-            std::lock_guard lk(mu_);
-            pending_.push_back({pid, pidfd});
-            if (!running_) {
-                running_ = true;
-                start = true;
-            }
-        }
-        if (start) {
-            std::thread(&ChildReaper::loop, this).detach();
-        }
-        wake();
-    }
-
-   private:
-    struct Child {
-        GPid pid;
-        int pidfd;
-    };
-
-    ChildReaper() {
-        // O_NONBLOCK on both ends: the reader drains until EAGAIN, and the writer must never
-        // block the launching thread if the pipe fills.
-        if (pipe2(wake_fds_, O_NONBLOCK | O_CLOEXEC) != 0) {
-            wake_fds_[0] = wake_fds_[1] = -1;
-        }
-    }
-
-    static int pidfd_open(pid_t pid) {
-        return static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
-    }
-
-    static void wait_for(GPid pid) {
-        int status = 0;
-        // Retry on EINTR: an unrestarted waitpid() would abandon the child as a zombie for the
-        // lifetime of the host process, which is exactly what this reaper exists to prevent. The
-        // Dart VM's profiler delivers SIGPROF, and embedders install handlers of their own.
-        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-        }
-    }
-
-    void wake() {
-        if (wake_fds_[1] >= 0) {
-            const char b = 0;
-            ssize_t ignored = write(wake_fds_[1], &b, 1);
-            (void)ignored;
-        }
-    }
-
-    void loop() {
-        std::vector<Child> watched;
-        std::vector<pollfd> fds;
-
-        for (;;) {
-            {
-                std::lock_guard lk(mu_);
-                watched.insert(watched.end(), pending_.begin(), pending_.end());
-                pending_.clear();
-                if (watched.empty()) {
-                    running_ = false;
-                    return;
-                }
-            }
-
-            fds.clear();
-            fds.reserve(watched.size() + 1);
-            if (wake_fds_[0] >= 0) {
-                fds.push_back({wake_fds_[0], POLLIN, 0});
-            }
-            for (const auto& c : watched) {
-                fds.push_back({c.pidfd, POLLIN, 0});
-            }
-
-            if (poll(fds.data(), fds.size(), -1) < 0) {
-                if (errno == EINTR) {
-                    continue;
-                }
-                // poll() cannot recover; reap what we hold so nothing is left a zombie.
-                for (const auto& c : watched) {
-                    wait_for(c.pid);
-                    close(c.pidfd);
-                }
-                std::lock_guard lk(mu_);
-                running_ = false;
-                return;
-            }
-
-            const size_t offset = (wake_fds_[0] >= 0) ? 1 : 0;
-            if (offset == 1 && (fds[0].revents & POLLIN) != 0) {
-                char drain[64];
-                while (read(wake_fds_[0], drain, sizeof(drain)) > 0) {
-                }
-            }
-
-            size_t kept = 0;
-            for (size_t i = 0; i < watched.size(); i++) {
-                if (fds[i + offset].revents == 0) {
-                    watched[kept++] = watched[i];
-                    continue;
-                }
-                int status = 0;
-                while (waitpid(watched[i].pid, &status, WNOHANG) < 0 && errno == EINTR) {
-                }
-                close(watched[i].pidfd);
-            }
-            watched.resize(kept);
-        }
-    }
-
-    std::mutex mu_;
-    std::vector<Child> pending_;
-    bool running_ = false;
-    int wake_fds_[2]{-1, -1};
-};
-
-}  // namespace
 
 static void reap_async(GPid pid) {
     ChildReaper::instance().add(pid);
@@ -253,6 +109,15 @@ static FlatpakInstalledRef* get_installed_app_ref(FlatpakInstallation* installat
 InstallationReader::InstallationReader(FlatpakInstallation* inst)
     : installation_(static_cast<FlatpakInstallation*>(g_object_ref(inst))) {
     launch_thread_ = std::thread(&InstallationReader::launch_loop, this);
+    appstream_queue_ = std::make_unique<SerialQueue<AppstreamRequest>>(
+        [this](const AppstreamRequest& req) {
+            refresh_appstream_impl(req.port, req.remote.c_str(), req.arch.c_str());
+        },
+        [](const AppstreamRequest& req) {
+            // 0x02, not the 0x03 lifecycle frame: refresh is a remote read, and the Dart side
+            // maps 0x02 to FlatpakRemoteException. 0x03 would leave the future hanging.
+            post_error(req.port, "reader closed before appstream refresh started");
+        });
 }
 
 InstallationReader::~InstallationReader() {
@@ -264,6 +129,7 @@ InstallationReader::~InstallationReader() {
         launch_stop_.store(true);
     }
     launch_cv_.notify_one();
+    appstream_queue_->stop();
     if (launch_thread_.joinable()) {
         launch_thread_.join();
     }
@@ -411,8 +277,7 @@ bool remote_ref_has_socket(FlatpakRemoteRef* fref, const char* socket_name) {
     if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, nullptr)) {
         return false;
     }
-    g_autofree char* sockets = g_key_file_get_string(kf, "Context", "sockets", nullptr);
-    return sockets && strstr(sockets, socket_name) != nullptr;
+    return metadata_requests_socket(kf, socket_name);
 }
 }  // namespace
 
@@ -457,7 +322,10 @@ void InstallationReader::get_app_info(Dart_Port port, const char* app_id, const 
     g_autoptr(FlatpakInstalledRef) iref =
         get_installed_app_ref(installation_, app_id, arch, branch, &err);
     if (!iref) {
-        post_error(port, err->message);
+        // Guarded, unlike the sibling readers above that call libflatpak directly: this one
+        // resolves through a local helper, so a future branch added there that forgets to set
+        // the error would turn a missing app into a null dereference.
+        post_error(port, err ? err->message : "app not installed");
         return;
     }
 
@@ -1147,51 +1015,20 @@ void InstallationReader::list_missing_extensions(Dart_Port port, const char* app
     const char* app_arch = safe_str(flatpak_ref_get_arch(FLATPAK_REF(iref)));
     const char* app_branch = safe_str(flatpak_ref_get_branch(FLATPAK_REF(iref)));
 
-    g_auto(GStrv) groups = g_key_file_get_groups(kf, nullptr);
-    for (gsize i = 0; groups && groups[i]; i++) {
-        const char* group = groups[i];
-        if (strncmp(group, "Extension ", 10) != 0) {
-            continue;
-        }
-        const char* ext_id = group + 10;
-        if (g_key_file_get_boolean(kf, group, "no-autodownload", nullptr)) {
-            continue;  // optional extension, not required at app-install time
-        }
-        // subdirectories=true: installable refs are <point>.<suffix>, enumerated from the remote
-        // rather than named here.
-        if (g_key_file_get_boolean(kf, group, "subdirectories", nullptr)) {
-            continue;
-        }
-
-        // "versions" is a ;-list of acceptable branches, any one of which satisfies the extension.
-        // "version" is the single-branch form. Neither key means "same branch as the app".
-        std::vector<std::string> branches;
-        g_auto(GStrv) versions =
-            g_key_file_get_string_list(kf, group, "versions", nullptr, nullptr);
-        for (gsize v = 0; versions && versions[v]; v++) {
-            if (*versions[v]) {
-                branches.emplace_back(versions[v]);
-            }
-        }
-        if (branches.empty()) {
-            g_autofree char* version = g_key_file_get_string(kf, group, "version", nullptr);
-            branches.emplace_back((version && *version) ? version : app_branch);
-        }
-
+    for (const auto& ext : required_extensions(kf, app_branch)) {
         bool installed = false;
-        for (const auto& ext_branch : branches) {
+        for (const auto& ext_branch : ext.branches) {
             g_autoptr(GError) inst_err = nullptr;
             g_autoptr(FlatpakInstalledRef) ext_iref = flatpak_installation_get_installed_ref(
-                installation_, FLATPAK_REF_KIND_RUNTIME, ext_id, app_arch, ext_branch.c_str(),
-                nullptr, &inst_err);
+                installation_, FLATPAK_REF_KIND_RUNTIME, ext.id.c_str(), app_arch,
+                ext_branch.c_str(), nullptr, &inst_err);
             if (ext_iref) {
                 installed = true;
                 break;
             }
         }
         if (!installed) {
-            std::string ref_str =
-                std::string("runtime/") + ext_id + "/" + app_arch + "/" + branches.front();
+            std::string ref_str = "runtime/" + ext.id + "/" + app_arch + "/" + ext.branches.front();
             post_string(port, ref_str.c_str());
         }
     }
@@ -1199,6 +1036,13 @@ void InstallationReader::list_missing_extensions(Dart_Port port, const char* app
 }
 
 void InstallationReader::refresh_appstream(Dart_Port port, const char* remote, const char* arch) {
+    if (!appstream_queue_->push(AppstreamRequest{port, safe_str(remote), safe_str(arch)})) {
+        post_error(port, "reader is closed");
+    }
+}
+
+void InstallationReader::refresh_appstream_impl(Dart_Port port, const char* remote,
+                                                const char* arch) {
     const char* use_arch = (arch && *arch) ? arch : nullptr;  // NULL = default arch
     g_autoptr(GError) err = nullptr;
     gboolean changed = FALSE;
