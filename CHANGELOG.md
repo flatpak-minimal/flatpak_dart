@@ -1,5 +1,22 @@
 ## 0.3.0
 
+- `FlatpakInstance` gains `runtime`: the full ref the instance runs against,
+  `runtime/org.freedesktop.Platform/x86_64/25.08`, exactly as
+  `flatpak_instance_get_runtime()` reports it.
+
+  This is what identifies an instance that has no application. `flatpak run` on
+  a runtime rather than an app — a `--command=sh` shell, `flatpak-builder
+  --run` — produces an instance whose application id is genuinely empty, on the
+  host as much as inside a sandbox, and it previously arrived anonymous.
+  `isRuntimeOnly` names that case and `toString()` falls back to the runtime
+  ref.
+
+  Both paths report it identically: libflatpak supplies it in-process, and the
+  sandboxed path now requests `runtime`/`runtime-branch` from `flatpak ps` and
+  reassembles the same ref. Verified against a live installation — the two
+  agree exactly, runtime instance included.
+
+
 - Filter AppStream catalogs to architectures this machine can actually run.
   `ArchPolicy` selects how far to look: `native` (the host architecture alone),
   `compatible` (the default — the host plus what it runs natively, mirroring

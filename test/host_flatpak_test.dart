@@ -90,6 +90,8 @@ void main() {
         'arch',
         'branch',
         'commit',
+        'runtime',
+        'runtime-branch',
         'pid',
         'child-pid',
       ]);
@@ -100,7 +102,7 @@ void main() {
     // commit truncated to 12 chars by flatpak itself.
     test('parses real flatpak ps output', () {
       const sample =
-          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb126e84c4\t1020423\t1020425\n';
+          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb126e84c4\torg.freedesktop.Platform\tstable\t1020423\t1020425\n';
 
       final got = parseHostPsOutput(sample);
       expect(got, hasLength(1));
@@ -116,8 +118,8 @@ void main() {
 
     test('parses several rows', () {
       const sample =
-          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb126e84c4\t1020423\t1020425\n'
-          'md.obsidian.Obsidian\t884413309\taarch64\tstable\tfeedface1234\t5100\t5108\n';
+          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb126e84c4\torg.freedesktop.Platform\tstable\t1020423\t1020425\n'
+          'md.obsidian.Obsidian\t884413309\taarch64\tstable\tfeedface1234\torg.freedesktop.Platform\tstable\t5100\t5108\n';
       final got = parseHostPsOutput(sample);
       expect(got, hasLength(2));
       expect(got.last.appId, 'md.obsidian.Obsidian');
@@ -126,14 +128,15 @@ void main() {
 
     test('accepts space-aligned columns', () {
       const sample =
-          'org.gnome.Calculator   2298374127   x86_64   stable   deadbeef   4242   4250\n';
+          'org.gnome.Calculator   2298374127   x86_64   stable   deadbeef   '
+          'org.freedesktop.Platform   25.08   4242   4250\n';
       expect(parseHostPsOutput(sample).single.childPid, 4250);
     });
 
     test('skips a header row instead of mis-binding it', () {
       const sample =
-          'Application\tInstance\tArch\tBranch\tCommit\tPID\tChild-PID\n'
-          'org.gnome.Calculator\t22983\tx86_64\tstable\tdeadbeef\t4242\t4250\n';
+          'Application\tInstance\tArch\tBranch\tCommit\torg.freedesktop.Platform\tBranch\tPID\tChild-PID\n'
+          'org.gnome.Calculator\t22983\tx86_64\tstable\tdeadbeef\torg.freedesktop.Platform\tstable\t4242\t4250\n';
       final got = parseHostPsOutput(sample);
       expect(got, hasLength(1));
       expect(got.single.appId, 'org.gnome.Calculator');
@@ -154,7 +157,8 @@ void main() {
     // on runs of whitespace would fold the two empty cells away, leave five
     // columns, and drop a running instance the caller then cannot stop.
     test('keeps a row whose middle cells are empty', () {
-      const sample = 'org.example.Dev\t118820\tx86_64\t\t\t9001\t9002\n';
+      const sample =
+          'org.example.Dev\t118820\tx86_64\t\t\torg.freedesktop.Platform\t\t9001\t9002\n';
       final got = parseHostPsOutput(sample);
       expect(got, hasLength(1));
       expect(got.single.appId, 'org.example.Dev');
@@ -164,57 +168,74 @@ void main() {
       expect(got.single.childPid, 9002);
     });
 
-    // Captured verbatim from `flatpak ps` run through `flatpak-spawn --host`
-    // from *inside* a Flatpak sandbox (org.freedesktop.Sdk//25.08). The
-    // sandbox's own instance appears with no application id and no commit —
-    // two empty cells, which is the shape that collapsing runs of whitespace
-    // folds into five fields and drops. Being unable to see the caller's own
-    // instance is exactly the failure this parse guards against.
-    test('parses the sandbox own instance, with two empty cells', () {
-      const sample = '\t77667162\tx86_64\t25.08\t\t2313012\t2313124\n';
+    // Captured verbatim from `flatpak ps` with the full column set. The first
+    // row is a runtime instance — `flatpak run` on a runtime rather than an
+    // app, which a `--command=sh` shell or `flatpak-builder --run` produces.
+    // Its application id and commit are genuinely empty; two empty cells is
+    // the shape that collapsing runs of whitespace folds into seven fields and
+    // drops. The runtime ref is the only thing that identifies it.
+    test('parses a runtime instance, with two empty cells', () {
+      const sample =
+          '\t3322222480\tx86_64\t25.08\t\torg.freedesktop.Sdk\t25.08\t2663465\t2663485\n';
       final got = parseHostPsOutput(sample);
       expect(got, hasLength(1));
       expect(got.single.appId, isEmpty);
-      expect(got.single.instanceId, '77667162');
-      expect(got.single.arch, 'x86_64');
-      expect(got.single.branch, '25.08');
       expect(got.single.commit, isEmpty);
-      expect(got.single.pid, 2313012);
-      expect(got.single.childPid, 2313124);
+      expect(got.single.instanceId, '3322222480');
+      expect(got.single.runtime, 'runtime/org.freedesktop.Sdk/x86_64/25.08');
+      expect(got.single.isRuntimeOnly, isTrue);
+      expect(got.single.pid, 2663465);
+      expect(got.single.childPid, 2663485);
     });
 
-    // The same capture, alongside the real apps that were running.
-    test('parses a real sandboxed ps listing whole', () {
+    // The same capture, whole, alongside the apps that were running.
+    test('parses a real listing including a runtime instance', () {
       const sample =
-          '\t77667162\tx86_64\t25.08\t\t2313012\t2313124\n'
-          'com.discordapp.Discord\t2994005714\tx86_64\tstable\t304391eb3e9f\t177612\t177727\n'
-          'com.discordapp.Discord\t1478859991\tx86_64\tstable\t304391eb3e9f\t177572\t177587\n'
-          'org.mozilla.firefox\t1911349486\tx86_64\tstable\t86ba63a1c237\t32337\t32711\n';
+          '\t3322222480\tx86_64\t25.08\t\torg.freedesktop.Sdk\t25.08\t2663465\t2663485\n'
+          'com.discordapp.Discord\t2994005714\tx86_64\tstable\t304391eb3e9f\torg.freedesktop.Platform\t25.08\t177612\t177727\n'
+          'org.mozilla.firefox\t1911349486\tx86_64\tstable\t86ba63a1c237\torg.freedesktop.Platform\t25.08\t32337\t32711\n';
       final got = parseHostPsOutput(sample);
-      expect(got, hasLength(4), reason: 'the sandbox instance must not vanish');
+      expect(got, hasLength(3), reason: 'the runtime instance must not vanish');
       expect(got.map((i) => i.appId), [
         '',
         'com.discordapp.Discord',
-        'com.discordapp.Discord',
         'org.mozilla.firefox',
       ]);
+      // Every one reports the same full ref shape libflatpak gives the
+      // in-process path, so the two paths agree.
+      expect(got.map((i) => i.runtime), [
+        'runtime/org.freedesktop.Sdk/x86_64/25.08',
+        'runtime/org.freedesktop.Platform/x86_64/25.08',
+        'runtime/org.freedesktop.Platform/x86_64/25.08',
+      ]);
+      expect(got.map((i) => i.isRuntimeOnly), [true, false, false]);
     });
 
+    test(
+      'a row naming no runtime reports an empty ref, not a half-built one',
+      () {
+        const sample = 'org.x.Y\t1\tx86_64\tstable\tc1\t\t\t10\t11\n';
+        expect(parseHostPsOutput(sample).single.runtime, isEmpty);
+      },
+    );
+
     test('keeps a row whose leading cell is empty', () {
-      const sample = '\t118820\tx86_64\tstable\tdeadbeef\t9001\t9002\n';
+      const sample =
+          '\t118820\tx86_64\tstable\tdeadbeef\torg.freedesktop.Sdk\t25.08\t9001\t9002\n';
       expect(parseHostPsOutput(sample).single.appId, isEmpty);
     });
 
     // pid and child-pid are the fields a stop actually needs, so a row missing
     // either is unusable rather than merely sparse.
     test('drops a row with no pid', () {
-      const sample = 'org.example.Dev\t118820\tx86_64\tstable\tdead\t\t9002\n';
+      const sample =
+          'org.example.Dev\t118820\tx86_64\tstable\tdead\torg.freedesktop.Platform\tstable\t\t9002\n';
       expect(parseHostPsOutput(sample), isEmpty);
     });
 
     test('tolerates CRLF line endings', () {
       const sample =
-          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb\t1020423\t1020425\r\n';
+          'org.gnome.Chess\t4127712988\taarch64\tstable\t2ebb\torg.freedesktop.Platform\tstable\t1020423\t1020425\r\n';
       expect(parseHostPsOutput(sample).single.pid, 1020423);
     });
   });
@@ -325,7 +346,7 @@ void main() {
         ..results['ps'] = ProcessResult(
           0,
           0,
-          'org.x.Y\t99887766\tx86_64\tstable\tdeadbeef\t700\t701\n',
+          'org.x.Y\t99887766\tx86_64\tstable\tdeadbeef\torg.freedesktop.Platform\tstable\t700\t701\n',
           '',
         );
       final instance = await _host(spawns).launch('org.x.Y');
@@ -375,7 +396,7 @@ void main() {
         ..results['ps'] = ProcessResult(
           0,
           0,
-          'org.x.Y\t99887766\tx86_64\tstable\tdeadbeef\t700\t701\n',
+          'org.x.Y\t99887766\tx86_64\tstable\tdeadbeef\torg.freedesktop.Platform\tstable\t700\t701\n',
           '',
         );
       final sw = Stopwatch()..start();
@@ -421,7 +442,7 @@ void main() {
         ..results['ps'] = ProcessResult(
           0,
           0,
-          'org.x.Y\t555\tx86_64\tstable\tdead\t900\t901\n',
+          'org.x.Y\t555\tx86_64\tstable\tdead\torg.freedesktop.Platform\tstable\t900\t901\n',
           '',
         );
       final instance = await _host(spawns).launch('org.x.Y');
@@ -475,8 +496,8 @@ void main() {
         ..results['ps'] = ProcessResult(
           0,
           0,
-          'org.a.A\t1\tx86_64\tstable\tc1\t10\t11\n'
-              'org.b.B\t2\tx86_64\tstable\tc2\t20\t21\n',
+          'org.a.A\t1\tx86_64\tstable\tc1\torg.freedesktop.Platform\tstable\t10\t11\n'
+              'org.b.B\t2\tx86_64\tstable\tc2\torg.freedesktop.Platform\tstable\t20\t21\n',
           '',
         );
       final got = await _host(spawns).listRunning();
@@ -582,7 +603,7 @@ void main() {
         ..results['ps'] = ProcessResult(
           0,
           0,
-          'org.a.A\t1\tx86_64\tstable\tc1\t10\t11\n',
+          'org.a.A\t1\tx86_64\tstable\tc1\torg.freedesktop.Platform\tstable\t10\t11\n',
           '',
         );
       final installation = FlatpakInstallation.delegatingTo(
