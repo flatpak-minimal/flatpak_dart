@@ -123,6 +123,23 @@ void main() {
       );
     });
 
+    // binfmt_misc is not only for emulators: Debian registers Python bytecode
+    // through it too. Captured verbatim from /proc/sys/fs/binfmt_misc on a
+    // Raspberry Pi 5 running Debian 13, where it is the *only* registration —
+    // a machine that must report no emulated architectures at all.
+    test('a non-emulator registration is not an architecture', () {
+      const pi =
+          'enabled\n'
+          'interpreter /usr/bin/python3.13\n'
+          'flags: \n'
+          'offset 0\n'
+          'magic f30d0d0a\n';
+      final h = parseBinfmtHandler('python3.13', pi);
+      expect(h.arch, isNull);
+      expect(h.enabled, isTrue);
+      expect(h.fixBinary, isFalse);
+    });
+
     test('survives a truncated file', () {
       final h = parseBinfmtHandler('qemu-aarch64', 'enabled\n');
       expect(h.enabled, isTrue);
@@ -185,6 +202,16 @@ void main() {
       );
       write('qemu-vax', registration(interpreter: '/usr/bin/qemu-vax-static'));
       expect(scan(), {'aarch64', 'riscv64'});
+    });
+
+    // The whole-directory version of the case above.
+    test('a directory of only non-emulator handlers yields nothing', () {
+      write(
+        'python3.13',
+        'enabled\ninterpreter /usr/bin/python3.13\nflags: \noffset 0\n',
+      );
+      write('jar', 'enabled\ninterpreter /usr/bin/jexec\nflags: \n');
+      expect(scan(), isEmpty);
     });
 
     test('a missing binfmt directory is empty, not an error', () {
