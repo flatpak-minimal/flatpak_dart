@@ -255,6 +255,71 @@ void main() {
       );
     });
 
+    // Reproduces flatpak's appstream2 deploy exactly: the catalog is an OSTree
+    // checkout, so its mtime is normalised to the epoch and is identical
+    // before and after an update, and it is reached through an `active`
+    // symlink whose own path never changes. Both halves of a naive identity
+    // are invariant, and the database would read as current forever.
+    //
+    // Observed on two machines: the uncompressed appstream.xml under active/
+    // was dated 1970 on both an x86_64 host and an aarch64 Raspberry Pi.
+    group('an OSTree-style active symlink', () {
+      late String activeLink;
+      late String source;
+
+      setUp(() {
+        for (final commit in ['commit-old', 'commit-new']) {
+          final f = File(p.join(dir.path, commit, 'appstream.xml'));
+          f.parent.createSync(recursive: true);
+          f.writeAsStringSync('<components origin="$commit"/>');
+          // OSTree normalises checked-out mtimes to the epoch.
+          f.setLastModifiedSync(DateTime.fromMillisecondsSinceEpoch(0));
+        }
+        activeLink = p.join(dir.path, 'active');
+        Link(activeLink).createSync(p.join(dir.path, 'commit-old'));
+        source = p.join(activeLink, 'appstream.xml');
+      });
+
+      test('a database built from it is current while unchanged', () {
+        File(dbPath).writeAsStringSync('pretend sqlite');
+        stampCatalogSource(dbPath, source);
+        expect(catalogNeedsRebuild(dbPath, source), isFalse);
+      });
+
+      test('repointing the symlink invalidates despite equal mtimes', () {
+        File(dbPath).writeAsStringSync('pretend sqlite');
+        stampCatalogSource(dbPath, source);
+        expect(catalogNeedsRebuild(dbPath, source), isFalse);
+
+        // flatpak swaps the deploy; mtime and the `active/...` path string are
+        // both unchanged.
+        Link(activeLink).updateSync(p.join(dir.path, 'commit-new'));
+        expect(
+          File(source).lastModifiedSync().millisecondsSinceEpoch,
+          0,
+          reason: 'the mtime must still be the epoch for this to be a test',
+        );
+        expect(catalogNeedsRebuild(dbPath, source), isTrue);
+      });
+
+      test('re-stamping after the swap makes it current again', () {
+        File(dbPath).writeAsStringSync('pretend sqlite');
+        stampCatalogSource(dbPath, source);
+        Link(activeLink).updateSync(p.join(dir.path, 'commit-new'));
+        expect(catalogNeedsRebuild(dbPath, source), isTrue);
+        stampCatalogSource(dbPath, source);
+        expect(catalogNeedsRebuild(dbPath, source), isFalse);
+      });
+
+      test('the stamp records the resolved commit, not the symlink', () {
+        File(dbPath).writeAsStringSync('pretend sqlite');
+        stampCatalogSource(dbPath, source);
+        final stamp = catalogStampFile(dbPath).readAsStringSync();
+        expect(stamp, contains('commit-old'));
+        expect(stamp, isNot(contains('active')));
+      });
+    });
+
     test('the stamp sits beside the database', () {
       expect(catalogStampFile(dbPath).path, '$dbPath.source');
     });
