@@ -164,6 +164,42 @@ void main() {
       expect(got.single.childPid, 9002);
     });
 
+    // Captured verbatim from `flatpak ps` run through `flatpak-spawn --host`
+    // from *inside* a Flatpak sandbox (org.freedesktop.Sdk//25.08). The
+    // sandbox's own instance appears with no application id and no commit —
+    // two empty cells, which is the shape that collapsing runs of whitespace
+    // folds into five fields and drops. Being unable to see the caller's own
+    // instance is exactly the failure this parse guards against.
+    test('parses the sandbox own instance, with two empty cells', () {
+      const sample = '\t77667162\tx86_64\t25.08\t\t2313012\t2313124\n';
+      final got = parseHostPsOutput(sample);
+      expect(got, hasLength(1));
+      expect(got.single.appId, isEmpty);
+      expect(got.single.instanceId, '77667162');
+      expect(got.single.arch, 'x86_64');
+      expect(got.single.branch, '25.08');
+      expect(got.single.commit, isEmpty);
+      expect(got.single.pid, 2313012);
+      expect(got.single.childPid, 2313124);
+    });
+
+    // The same capture, alongside the real apps that were running.
+    test('parses a real sandboxed ps listing whole', () {
+      const sample =
+          '\t77667162\tx86_64\t25.08\t\t2313012\t2313124\n'
+          'com.discordapp.Discord\t2994005714\tx86_64\tstable\t304391eb3e9f\t177612\t177727\n'
+          'com.discordapp.Discord\t1478859991\tx86_64\tstable\t304391eb3e9f\t177572\t177587\n'
+          'org.mozilla.firefox\t1911349486\tx86_64\tstable\t86ba63a1c237\t32337\t32711\n';
+      final got = parseHostPsOutput(sample);
+      expect(got, hasLength(4), reason: 'the sandbox instance must not vanish');
+      expect(got.map((i) => i.appId), [
+        '',
+        'com.discordapp.Discord',
+        'com.discordapp.Discord',
+        'org.mozilla.firefox',
+      ]);
+    });
+
     test('keeps a row whose leading cell is empty', () {
       const sample = '\t118820\tx86_64\tstable\tdeadbeef\t9001\t9002\n';
       expect(parseHostPsOutput(sample).single.appId, isEmpty);
