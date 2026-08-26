@@ -145,6 +145,32 @@ void main() {
       expect(await portal.list('devices'), ['camera', 'microphone']);
     });
 
+    // Verified against xdg-permission-store: a missing resource answers
+    // org.freedesktop.portal.Error.NotFound with "No entry for <id>".
+    test('the real portal not-found shape reads as notSet', () async {
+      fake.errors['GetPermission'] = DBusMethodErrorResponse(
+        'org.freedesktop.portal.Error.NotFound',
+        [const DBusString('No entry for no.such.resource')],
+      );
+      expect(
+        await portal.get('devices', 'no.such.resource', 'org.x'),
+        PermissionStatus.notSet,
+      );
+    });
+
+    // A backend that fails for a real reason must not be read as "nothing is
+    // stored" — that would prompt, or write, over a slate that is not clean.
+    test('a generic failure mentioning "not found" still propagates', () async {
+      fake.errors['GetPermission'] = DBusMethodErrorResponse(
+        'org.freedesktop.DBus.Error.Failed',
+        [const DBusString('permission database not found or corrupt')],
+      );
+      await expectLater(
+        portal.get('devices', 'camera', 'org.x'),
+        throwsA(isA<DBusMethodResponseException>()),
+      );
+    });
+
     test('UnknownMethod propagates instead of reading as notSet', () async {
       fake.errors['GetPermission'] = DBusMethodErrorResponse(
         'org.freedesktop.DBus.Error.UnknownMethod',
@@ -179,6 +205,99 @@ void main() {
         fake.calls.map((c) => (c.values[0] as DBusString).value).toList(),
         ['devices', 'location'],
       );
+    });
+
+    test('setResource writes the whole app→permissions map', () async {
+      await portal.setResource('devices', 'camera', {
+        'org.x': ['yes'],
+        'org.y': ['no'],
+      }, data: 'note');
+      final c = fake.calls.single;
+      expect(c.member, 'Set');
+      expect((c.values[0] as DBusString).value, 'devices');
+      expect((c.values[1] as DBusBoolean).value, isTrue);
+      expect((c.values[2] as DBusString).value, 'camera');
+      final dict = c.values[3] as DBusDict;
+      expect(dict.children, hasLength(2));
+      expect(
+        ((dict.children[const DBusString('org.x')]) as DBusArray).children.map(
+          (e) => (e as DBusString).value,
+        ),
+        ['yes'],
+      );
+      expect(((c.values[4] as DBusVariant).value as DBusString).value, 'note');
+    });
+
+    test('setResource passes create=false through', () async {
+      await portal.setResource('devices', 'camera', const {}, create: false);
+      expect((fake.calls.single.values[1] as DBusBoolean).value, isFalse);
+    });
+
+    test('setValue stores opaque resource data', () async {
+      await portal.setValue('devices', 'camera', 'blob');
+      final c = fake.calls.single;
+      expect(c.member, 'SetValue');
+      expect((c.values[2] as DBusString).value, 'camera');
+      expect(((c.values[3] as DBusVariant).value as DBusString).value, 'blob');
+    });
+
+    test('deleteResource removes a whole resource', () async {
+      await portal.deleteResource('devices', 'camera');
+      final c = fake.calls.single;
+      expect(c.member, 'Delete');
+      expect((c.values[1] as DBusString).value, 'camera');
+    });
+
+    test('deleteResource swallows NotFound', () async {
+      fake.errors['Delete'] = DBusMethodErrorResponse(
+        'org.freedesktop.portal.Error.NotFound',
+        [const DBusString('No entry for camera')],
+      );
+      await portal.deleteResource('devices', 'camera'); // no throw
+    });
+
+    test('deleteResource propagates a real failure', () async {
+      fake.errors['Delete'] = DBusMethodErrorResponse(
+        'org.freedesktop.DBus.Error.AccessDenied',
+      );
+      await expectLater(
+        portal.deleteResource('devices', 'camera'),
+        throwsA(isA<DBusMethodResponseException>()),
+      );
+    });
+
+    test('list NotFound returns empty rather than throwing', () async {
+      fake.errors['List'] = DBusMethodErrorResponse(
+        'org.freedesktop.portal.Error.NotFound',
+        [const DBusString('No entry for devices')],
+      );
+      expect(await portal.list('devices'), isEmpty);
+    });
+
+    // Every device permission lives in one table, so resolving several must
+    // not cost one round trip each.
+    test('check reuses one lookup per resource', () async {
+      fake.replies['Lookup'] = [
+        DBusDict(DBusSignature('s'), DBusSignature('as'), {
+          const DBusString('org.x'): _as(['yes']),
+        }),
+        const DBusVariant(DBusString('')),
+      ];
+      await portal.check('org.x', ['camera', 'microphone', 'speakers']);
+      // camera/microphone/speakers all map to devices/<perm>, so three
+      // distinct resources — but each is looked up exactly once.
+      expect(fake.calls.where((c) => c.member == 'Lookup'), hasLength(3));
+    });
+
+    test('check reports an app with no stored entry as notSet', () async {
+      fake.replies['Lookup'] = [
+        DBusDict(DBusSignature('s'), DBusSignature('as'), {
+          const DBusString('org.other'): _as(['yes']),
+        }),
+        const DBusVariant(DBusString('')),
+      ];
+      final r = await portal.check('org.x', ['camera']);
+      expect(r['camera'], PermissionStatus.notSet);
     });
 
     test('removeAllForApp deletes fixed tables plus device ids', () async {

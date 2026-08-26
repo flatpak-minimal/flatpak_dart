@@ -300,15 +300,27 @@ class PermissionStorePortal {
 }
 
 /// Whether [e] means "no such entry" rather than "the call failed".
-/// `UnknownMethod` is not not-found: a portal that lacks the method can never
-/// answer, and an empty result would read as a permanent miss.
+///
+/// The error *name* is the real signal, and xdg-desktop-portal's permission
+/// store always sends it: `Lookup`, `GetPermission` and `Delete` on a missing
+/// resource each answer `org.freedesktop.portal.Error.NotFound` with the
+/// message `No entry for <id>` (verified against xdg-permission-store; `List`
+/// on an unknown table does not error at all, it returns an empty array).
+///
+/// The message check is only a fallback for a backend that reports the
+/// condition without the well-known name. It is deliberately narrow: matching
+/// something as generic as "not found" would quietly turn a real failure — a
+/// corrupt database, a backend that cannot open its store — into "no
+/// permission is set", and the caller would then prompt or write as if the
+/// slate were clean.
+///
+/// `UnknownMethod` is not not-found either: a portal that lacks the method can
+/// never answer, and an empty result would read as a permanent miss.
 bool _isNotFound(DBusMethodResponseException e) {
   if (e.errorName == 'org.freedesktop.portal.Error.NotFound') return true;
   final values = e.response.values;
   final msg = values.isNotEmpty && values.first is DBusString
       ? (values.first as DBusString).value
       : '';
-  return msg.contains('No entry') ||
-      msg.contains('not found') ||
-      msg.contains('No table');
+  return msg.startsWith('No entry for');
 }

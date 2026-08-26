@@ -5,7 +5,10 @@
   `flatpak_installation_update_appstream_sync()`, and resolves full component
   metadata — icons, screenshots, releases, categories — via `appstream_dart`.
   `installedIconPath()` resolves an installed app's on-disk icon with no
-  catalog at all.
+  catalog at all, from that one app's deploy directory rather than by
+  enumerating the installation. The refresh is a network pull of the whole catalog, so it
+  runs on its own serial thread rather than on the calling isolate, and
+  concurrent lookups of one catalog share a single build.
 - Add an xdg-desktop-portal PermissionStore client.
   `FlatpakClient.permissionsStore` reads and writes per-app permission
   decisions (devices, location, notifications, background), and
@@ -14,14 +17,20 @@
   status of every permission alongside the launched instance.
 - Add system introspection: `getVersion()`, `getDefaultArch()`,
   `getSupportedArches()`, `listSystemInstallations()`, `getSystemStorage()`,
-  `ensureRuntime()` and `installExtensions()`.
+  `ensureRuntime()` and `installExtensions()`. `getSystemStorage()` reports
+  unreadable `df` output as `FlatpakRemoteException`, so callers catching
+  `FlatpakException` see every failure mode of the call.
 - Add `waylandOnly` to remote app listing, filtering to refs that request the
   wayland socket.
 - Delegate app lifecycle to the host when running inside a Flatpak sandbox.
   `launch()`, `stop()` and `listRunning()` route through
   `flatpak-spawn --host` there, because bwrap and the instance directory are
   not reachable from inside a sandbox. Requires
-  `--talk-name=org.freedesktop.Flatpak` in the caller's finish-args.
+  `--talk-name=org.freedesktop.Flatpak` in the caller's finish-args. App ids
+  are passed after a `--` terminator so one cannot present itself as an option
+  to a command running on the host. A delegated launch returns as soon as the
+  app registers an instance, or as soon as the run fails — only a launch that
+  does neither waits out the settle window.
 - Honour an explicit `arch` when no branch is given. Resolving an installed app
   through `flatpak_installation_get_current_installed_app()` silently dropped
   the arch and returned the host-arch ref instead.
@@ -33,8 +42,12 @@
   metadata for many apps reusing one open catalog, and
   `appStream.installedIconPaths()` resolves icons from a single enumeration.
   The single-app forms delegate to them.
-- Cache AppStream catalogs under `XDG_CACHE_HOME/flatpak_dart` (0700) instead
-  of a shared temp directory, keyed by a hash of the installation path.
+- Cache AppStream catalogs under `XDG_CACHE_HOME/flatpak_dart` instead of a
+  shared temp directory, keyed by a hash of the installation path. The
+  directory is verified to be a non-symlink owned only by the current user at
+  0700; when it cannot be (no `HOME`, or the path belongs to someone else) the
+  cache falls back to a private `mkdtemp` directory rather than to a
+  predictable one another local user could pre-create.
   `FlatpakClient.close()` releases the open catalog handles.
 - Reap launched sandboxes from one multiplexed thread rather than one thread
   per running app.

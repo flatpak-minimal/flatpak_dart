@@ -21,6 +21,7 @@ import 'ffi/bindings.dart';
 import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
 import 'installation_info.dart';
+import 'installation_paths.dart';
 import 'instance.dart';
 import 'permissions.dart';
 import 'portal/permission_flow.dart';
@@ -227,39 +228,21 @@ class FlatpakClient {
   }
 
   /// Disk usage of the filesystem backing this client's installation.
+  ///
+  /// Reports the whole filesystem, not Flatpak's share of it. Needs GNU
+  /// coreutils' `df --output`, which is what Linux ships.
   Future<StorageInfo> getSystemStorage() async {
-    final path = _installationPath();
-    final result = await Process.run('df', [
-      '-B1',
-      '--output=size,avail',
-      path,
-    ]);
+    final path = installationPathFor(_installation.name);
+    final ProcessResult result;
+    try {
+      result = await Process.run('df', ['-B1', '--output=size,avail', path]);
+    } on ProcessException catch (e) {
+      throw FlatpakRemoteException('df failed for $path: ${e.message}');
+    }
     if (result.exitCode != 0) {
       throw FlatpakRemoteException('df failed for $path: ${result.stderr}');
     }
-    final lines = (result.stdout as String).trim().split('\n');
-    if (lines.length < 2) {
-      throw FlatpakRemoteException('unexpected df output for $path');
-    }
-    final parts = lines.last.trim().split(RegExp(r'\s+'));
-    final total = int.parse(parts[0]);
-    final available = int.parse(parts[1]);
-    return StorageInfo(totalBytes: total, availableBytes: available);
-  }
-
-  String _installationPath() {
-    switch (_installation.name) {
-      case 'user':
-        final xdg = Platform.environment['XDG_DATA_HOME'];
-        final base = (xdg != null && xdg.isNotEmpty)
-            ? xdg
-            : '${Platform.environment['HOME'] ?? ''}/.local/share';
-        return '$base/flatpak';
-      case 'system':
-        return '/var/lib/flatpak';
-      default:
-        return _installation.name;
-    }
+    return parseDfOutput(result.stdout as String, context: 'df $path');
   }
 
   // ── Update monitor (FlatpakMonitor GObject API, libflatpak >= 1.5.3) ──
