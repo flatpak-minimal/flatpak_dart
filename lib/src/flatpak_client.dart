@@ -15,6 +15,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'application.dart';
+import 'arch.dart';
 import 'appstream/catalog.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
@@ -118,10 +119,23 @@ class FlatpakClient {
 
   FlatpakAppStream? _appStream;
 
+  /// How far beyond the host architecture [appStream] looks for runnable apps.
+  ///
+  /// Defaults to [ArchPolicy.compatible]. Set [ArchPolicy.emulated] to also
+  /// surface architectures the kernel can execute through binfmt_misc — which
+  /// only ever adds architectures that also have a catalog on this machine, so
+  /// a host with qemu registered for everything does not start advertising
+  /// architectures nothing publishes apps for.
+  ///
+  /// Assign before first use of [appStream]; it is read when that is built.
+  ArchPolicy archPolicy = ArchPolicy.compatible;
+
   /// AppStream metadata (icons, screenshots, releases) and installed-app
   /// icon resolution, backed by the appstream_dart engine.
-  FlatpakAppStream get appStream =>
-      _appStream ??= FlatpakAppStream.forName(_installation);
+  FlatpakAppStream get appStream => _appStream ??= FlatpakAppStream.forName(
+    _installation,
+    archPolicy: archPolicy,
+  );
 
   // ── Portal permissions (xdg-desktop-portal PermissionStore) ────────────
 

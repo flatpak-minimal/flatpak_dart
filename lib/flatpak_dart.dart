@@ -8,6 +8,7 @@ library;
 export 'package:appstream_dart/appstream.dart';
 
 export 'src/application.dart';
+export 'src/arch.dart';
 export 'src/appstream/catalog.dart';
 export 'src/exceptions.dart';
 export 'src/flatpak_client.dart';

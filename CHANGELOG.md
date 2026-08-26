@@ -1,5 +1,23 @@
 ## 0.3.0
 
+- Filter AppStream catalogs to architectures this machine can actually run.
+  `ArchPolicy` selects how far to look: `native` (the host architecture alone),
+  `compatible` (the default — the host plus what it runs natively, mirroring
+  `flatpak_get_supported_arches()`), or `emulated`.
+
+  Emulation is detected, not configured. `kernelExecutableArches()` reads
+  binfmt_misc for registrations that are enabled, carry the `F` flag (without
+  which the interpreter is unreachable inside the sandbox) and whose
+  interpreter still exists. That alone is never enough to surface an
+  architecture: a machine with `qemu-user-static` registers ~31 of them while a
+  remote may publish apps for one, so `usableArches()` reports only
+  architectures that are both runnable *and* have a downloaded catalog. The
+  host architecture always outranks an emulated one.
+
+  This also fixes catalog selection picking the alphabetically first
+  architecture directory when the host's own was absent, which could serve
+  x86_64 apps on an aarch64 machine.
+
 - Add AppStream catalog support. `FlatpakClient.appStream` locates a remote's
   downloaded catalog, refreshes it through
   `flatpak_installation_update_appstream_sync()`, and resolves full component

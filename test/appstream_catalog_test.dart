@@ -4,11 +4,16 @@ library;
 import 'dart:io';
 
 import 'package:flatpak_dart/src/appstream/catalog.dart';
+import 'package:flatpak_dart/src/arch.dart';
 import 'package:flatpak_dart/src/installation.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  // The tests run on whatever machine CI gives them, so they assert against
+  // the host's own architecture rather than hard-coding one.
+  final hostArch = hostFlatpakArch!;
+
   group('FlatpakAppStream.catalogPath', () {
     late Directory base;
     late FlatpakAppStream appStream;
@@ -79,38 +84,96 @@ void main() {
       expect(got, endsWith('active/appstream.xml'));
     });
 
-    test('auto-selects an arch when none is given', () {
-      writeCatalog('flathub', 'aarch64', 'appstream.xml');
-      final got = appStream.catalogPath('flathub');
-      expect(got, isNotNull);
-      expect(got, contains('aarch64'));
+    test('auto-selects the host arch when none is given', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      expect(appStream.catalogPath('flathub'), contains('/$hostArch/'));
     });
 
-    // With several arches downloaded, the host's own is the one that can
-    // actually be installed — and it is not the alphabetically first.
+    // With several downloaded, the host's own wins — and it is not the
+    // alphabetically first.
     test('prefers the host arch over the first sorted one', () {
-      for (final arch in const ['aarch64', 'i386', 'x86_64']) {
+      for (final arch in {'aarch64', 'i386', 'x86_64', hostArch}) {
         writeCatalog('flathub', arch, 'appstream.xml');
       }
-      final host = Process.runSync('uname', ['-m']).stdout.toString().trim();
-      final expected =
-          const {'arm64': 'aarch64', 'armv7l': 'arm', 'i686': 'i386'}[host] ??
-          host;
+      expect(appStream.catalogPath('flathub'), contains('/$hostArch/'));
+    });
 
-      final got = appStream.catalogPath('flathub');
-      expect(got, isNotNull);
-      if (const ['aarch64', 'i386', 'x86_64'].contains(expected)) {
-        expect(got, contains('/$expected/'));
-      } else {
-        // Host arch not among the downloaded ones: fall back to first sorted.
-        expect(got, contains('/aarch64/'));
+    // The whole point of the filter. A catalog for an architecture this
+    // machine cannot execute is not a fallback — offering it would list apps
+    // that cannot be installed, let alone run.
+    test('a foreign-arch catalog is not offered', () {
+      writeCatalog('flathub', 'mips64el', 'appstream.xml');
+      writeCatalog('flathub', 's390x', 'appstream.xml');
+      expect(appStream.catalogPath('flathub'), isNull);
+    });
+
+    test('native policy refuses even a compatible arch', () {
+      final native = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.native,
+      );
+      // i386 runs natively on x86_64, so `compatible` accepts it...
+      writeCatalog('flathub', 'i386', 'appstream.xml');
+      if (hostArch == 'x86_64') {
+        expect(appStream.catalogPath('flathub'), contains('/i386/'));
+        expect(native.catalogPath('flathub'), isNull);
       }
     });
 
-    test('falls back to the first sorted arch when the host has none', () {
-      writeCatalog('flathub', 'mips64el', 'appstream.xml');
-      writeCatalog('flathub', 'riscv64', 'appstream.xml');
-      expect(appStream.catalogPath('flathub'), contains('/mips64el/'));
+    // The positive case of the whole feature: an architecture is offered only
+    // when the kernel can execute it *and* a catalog for it exists. Detection
+    // is injected so this does not depend on the test machine having qemu.
+    test(
+      'emulated offers a foreign arch that is both runnable and present',
+      () {
+        writeCatalog('flathub', 'aarch64', 'appstream.xml');
+        final emulated = FlatpakAppStream(
+          FlatpakInstallation('user'),
+          base.path,
+          archPolicy: ArchPolicy.emulated,
+          executableArches: const {'aarch64'},
+        );
+        expect(emulated.usableArches('flathub'), ['aarch64']);
+        expect(emulated.catalogPath('flathub'), contains('/aarch64/'));
+      },
+    );
+
+    test('emulated still refuses an arch the kernel cannot execute', () {
+      writeCatalog('flathub', 'aarch64', 'appstream.xml');
+      final noQemu = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.emulated,
+        executableArches: const {},
+      );
+      expect(noQemu.usableArches('flathub'), isEmpty);
+      expect(noQemu.catalogPath('flathub'), isNull);
+    });
+
+    // Native always wins: an emulated build must never be chosen over one the
+    // machine runs directly.
+    test('a native catalog outranks an emulated one', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      writeCatalog('flathub', 'aarch64', 'appstream.xml');
+      final emulated = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.emulated,
+        executableArches: const {'aarch64'},
+      );
+      expect(emulated.usableArches('flathub').first, hostArch);
+      expect(emulated.catalogPath('flathub'), contains('/$hostArch/'));
+    });
+
+    test('usableArches reports only what is both allowed and downloaded', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      writeCatalog('flathub', 's390x', 'appstream.xml');
+      expect(appStream.usableArches('flathub'), [hostArch]);
+      expect(
+        appStream.downloadedArches('flathub'),
+        containsAll([hostArch, 's390x']),
+      );
     });
 
     test('an explicit arch with no catalog is null, not another arch', () {
