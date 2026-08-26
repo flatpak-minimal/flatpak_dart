@@ -23,6 +23,6 @@ find native/src -name "*.cpp" \
     | xargs -P"$CPU_COUNT" clang-tidy-19 \
         -p "$BUILD_DIR" \
         --config-file=.clang-tidy \
-        --header-filter='native/include/(flatpak_|transaction_|installation_)' \
+        --header-filter='native/include/(flatpak_|transaction_|installation_|app_metadata|child_reaper|serial_queue)' \
         --warnings-as-errors="*"
 echo "=== clang-tidy-19 clean ==="

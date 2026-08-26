@@ -163,6 +163,22 @@ jobs:
             libflatpak-dev libglib2.0-dev libgtest-dev
       - run: ./scripts/asan.sh build-asan
 
+  # ── TSan ─────────────────────────────────────────────────────────────
+  # Separate job because ASan and TSan cannot share a build, and they catch
+  # different classes: the reaper and the launch/transaction workers fail by
+  # racing, not by corrupting memory.
+  tsan:
+    name: TSan (Ubuntu x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang-19 libclang-rt-19-dev \
+            libflatpak-dev libglib2.0-dev libgtest-dev
+      - run: ./scripts/tsan.sh build-tsan
+
   # ── Coverage (PR only) ───────────────────────────────────────────────
   coverage:
     name: Coverage (PR)
