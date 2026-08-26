@@ -33,5 +33,21 @@ Future<void> main() async {
   // Note what that shows: an architecture appears under "usable" only when the
   // kernel can execute it AND a catalog for it has been downloaded. A qemu
   // registration with nothing to run never turns into apps in a list.
+
+  // The same policy governs installed apps. A foreign-arch app can be
+  // installed (`flatpak install --arch=...` does not refuse) but cannot run,
+  // so it is hidden unless asked for.
+  final all = await client.listApplications(allArches: true);
+  final runnable = await client.listApplications();
+  print('\nInstalled: ${all.length} total, ${runnable.length} runnable here');
+  for (final app in all) {
+    final mark = client.canRunArch(app.ref.arch) ? ' ' : '!';
+    print('  $mark ${app.ref.name.padRight(28)} ${app.ref.arch}');
+  }
+
+  // Nothing about binfmt_misc can be watched cheaply, so after installing or
+  // removing an emulator tell the client to look again:
+  client.refreshArchSupport();
+
   await client.close();
 }

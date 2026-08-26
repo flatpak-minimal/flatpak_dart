@@ -160,6 +160,84 @@ String? _archForHandler(String name, String interpreter) {
   return null;
 }
 
+/// Whether [arch] is one this machine can run under [policy].
+///
+/// The catalog-side question is "should I ingest this architecture"; this is
+/// the installed-side one — an app for an architecture the machine cannot
+/// execute is installed but unrunnable, and should not be offered.
+bool isRunnableArch(
+  String arch,
+  ArchPolicy policy, {
+  String? hostArch,
+  Set<String>? executableArches,
+  String binfmtDir = '/proc/sys/fs/binfmt_misc',
+}) => candidateArches(
+  policy,
+  hostArch: hostArch,
+  binfmtDir: binfmtDir,
+  executableArches: executableArches,
+).contains(arch);
+
+/// Caches [kernelExecutableArches] so a caller can ask per app without paying
+/// a directory scan each time.
+///
+/// A full scan costs about a millisecond on a machine with `qemu-user-static`
+/// installed (33 registrations), which is nothing once but real when a list
+/// view asks per row.
+///
+/// There is deliberately no cheap change-detector behind this. binfmt_misc
+/// does not bump the directory mtime when a registration is added — on a test
+/// machine the directory's mtime was the mount time while the registrations
+/// themselves were stamped later — and disabling a handler in place changes
+/// neither the mtime nor the entry count, which is exactly the case that
+/// matters. So the choice is a bounded staleness window plus an explicit
+/// [invalidate] for callers that know something changed.
+class ArchSupportCache {
+  ArchSupportCache({
+    this.cacheFor = const Duration(seconds: 5),
+    String binfmtDir = '/proc/sys/fs/binfmt_misc',
+    Set<String> Function()? scan,
+  }) : _binfmtDir = binfmtDir,
+       _scan = scan ?? (() => kernelExecutableArches(binfmtDir: binfmtDir));
+
+  /// How long a scan result is reused before the kernel is consulted again.
+  /// [Duration.zero] rescans every time.
+  final Duration cacheFor;
+
+  final String _binfmtDir;
+  final Set<String> Function() _scan;
+
+  Set<String>? _cached;
+  final Stopwatch _age = Stopwatch();
+
+  /// Number of scans performed. Exposed so a test can prove the cache is
+  /// actually avoiding work rather than merely returning the right answer.
+  int scans = 0;
+
+  String get binfmtDir => _binfmtDir;
+
+  /// Architectures the kernel can currently execute, from cache when fresh.
+  Set<String> executableArches() {
+    final cached = _cached;
+    if (cached != null && _age.elapsed < cacheFor) return cached;
+    scans++;
+    _age
+      ..reset()
+      ..start();
+    return _cached = _scan();
+  }
+
+  /// Drops the cached scan, so the next query consults the kernel.
+  ///
+  /// Call after anything that could have changed binfmt registrations —
+  /// installing or removing an emulator package, or a user toggling one.
+  void invalidate() {
+    _cached = null;
+    _age.stop();
+    _age.reset();
+  }
+}
+
 /// Architectures the kernel is configured to execute through binfmt_misc.
 ///
 /// **This is not on its own a reason to offer an architecture.** A machine with

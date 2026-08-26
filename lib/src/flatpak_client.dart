@@ -57,10 +57,33 @@ class FlatpakClient {
 
   // ── Read operations (libflatpak — no D-Bus, no polkit) ────────────────
 
-  /// List installed applications.
+  /// Installed applications this machine can actually run.
+  ///
+  /// Flatpak will install an app for any architecture — `flatpak install
+  /// --arch=aarch64` succeeds on an x86_64 host — and such an app is installed
+  /// but unrunnable. Listing it would offer the user something that fails at
+  /// launch, so it is filtered out by [archPolicy]. Pass [allArches] to get
+  /// everything regardless, for a UI that would rather label than hide.
   Future<List<FlatpakApplication>> listApplications({
     bool includeRuntimes = false,
-  }) => _installation.listApplications(includeRuntimes: includeRuntimes);
+    bool allArches = false,
+  }) async {
+    final apps = await _installation.listApplications(
+      includeRuntimes: includeRuntimes,
+    );
+    if (allArches) return apps;
+    return [
+      for (final app in apps)
+        if (app.ref.arch.isEmpty || appStream.canRunArch(app.ref.arch)) app,
+    ];
+  }
+
+  /// Whether an app built for [arch] can run here under [archPolicy].
+  bool canRunArch(String arch) => appStream.canRunArch(arch);
+
+  /// Forgets cached emulation support; the next architecture question asks the
+  /// kernel again. See [FlatpakAppStream.refreshArchSupport].
+  void refreshArchSupport() => appStream.refreshArchSupport();
 
   /// List configured remotes.
   Future<List<FlatpakRemote>> listRemotes() => _installation.listRemotes();
@@ -127,8 +150,16 @@ class FlatpakClient {
   /// a host with qemu registered for everything does not start advertising
   /// architectures nothing publishes apps for.
   ///
-  /// Assign before first use of [appStream]; it is read when that is built.
-  ArchPolicy archPolicy = ArchPolicy.compatible;
+  /// Safe to change at any point: it is forwarded to an already-built
+  /// [appStream] rather than captured when that is created, so a late
+  /// assignment cannot silently fail to take effect.
+  ArchPolicy get archPolicy => _appStream?.archPolicy ?? _archPolicy;
+  set archPolicy(ArchPolicy policy) {
+    _archPolicy = policy;
+    _appStream?.archPolicy = policy;
+  }
+
+  ArchPolicy _archPolicy = ArchPolicy.compatible;
 
   /// AppStream metadata (icons, screenshots, releases) and installed-app
   /// icon resolution, backed by the appstream_dart engine.

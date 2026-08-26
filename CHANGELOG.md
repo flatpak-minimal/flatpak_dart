@@ -14,6 +14,21 @@
   architectures that are both runnable *and* have a downloaded catalog. The
   host architecture always outranks an emulated one.
 
+  The policy applies to installed apps too. Flatpak installs an app for any
+  architecture on request — `flatpak install --arch=aarch64` succeeds on an
+  x86_64 host — and the result is installed but unrunnable, so
+  `listApplications()` now hides it. Pass `allArches: true` for a UI that would
+  rather label than hide, and use `canRunArch()` to do the labelling.
+
+  Emulation support is cached, because a list view asks per row and a scan
+  costs about a millisecond on a machine with `qemu-user-static` installed.
+  There is no automatic invalidation: binfmt_misc does not bump its directory
+  mtime when a registration is added, and disabling a handler in place changes
+  neither that nor the entry count — which is exactly the case that matters. So
+  the cache has a bounded staleness window and an explicit
+  `refreshArchSupport()` for callers that know an emulator was installed,
+  removed or toggled.
+
   This also fixes catalog selection picking the alphabetically first
   architecture directory when the host's own was absent, which could serve
   x86_64 apps on an aarch64 machine.

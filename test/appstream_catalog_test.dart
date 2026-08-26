@@ -246,6 +246,53 @@ void main() {
       });
     }
 
+    group('canRunArch', () {
+      // Unlike usableArches, this needs no catalog: an installed app launches
+      // from its own deploy directory.
+      test('the host arch is runnable with nothing downloaded', () {
+        expect(appStream.canRunArch(hostArch), isTrue);
+      });
+
+      test('a foreign arch is not runnable under compatible', () {
+        expect(appStream.canRunArch(foreignArch), isFalse);
+      });
+
+      test('an emulated foreign arch is runnable without a catalog', () {
+        final emulated = FlatpakAppStream(
+          FlatpakInstallation('user'),
+          base.path,
+          archPolicy: ArchPolicy.emulated,
+          executableArches: {foreignArch},
+        );
+        expect(emulated.canRunArch(foreignArch), isTrue);
+        expect(emulated.usableArches('flathub'), isEmpty, reason: 'no catalog');
+      });
+
+      test('an arch nothing can run is never runnable', () {
+        expect(appStream.canRunArch('sparc64'), isFalse);
+      });
+    });
+
+    test('archPolicy can be changed after construction', () {
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
+      final a = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        executableArches: {foreignArch},
+      );
+      expect(a.usableArches('flathub'), isEmpty);
+      a.archPolicy = ArchPolicy.emulated;
+      expect(a.usableArches('flathub'), [foreignArch]);
+    });
+
+    test('refreshArchSupport re-reads emulation support', () {
+      // Injected detection wins over the cache, so this only has to prove the
+      // call is harmless and the object keeps working.
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      appStream.refreshArchSupport();
+      expect(appStream.usableArches('flathub'), [hostArch]);
+    });
+
     test('usableArches reports only what is both allowed and downloaded', () {
       writeCatalog('flathub', hostArch, 'appstream.xml');
       writeCatalog('flathub', 's390x', 'appstream.xml');

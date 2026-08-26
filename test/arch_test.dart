@@ -226,6 +226,116 @@ void main() {
     });
   });
 
+  group('isRunnableArch', () {
+    test('the host arch is always runnable', () {
+      expect(
+        isRunnableArch('aarch64', ArchPolicy.native, hostArch: 'aarch64'),
+        isTrue,
+      );
+    });
+
+    test('a foreign arch is not runnable under compatible', () {
+      expect(
+        isRunnableArch('x86_64', ArchPolicy.compatible, hostArch: 'aarch64'),
+        isFalse,
+      );
+    });
+
+    test('a foreign arch becomes runnable when the kernel can execute it', () {
+      expect(
+        isRunnableArch(
+          'x86_64',
+          ArchPolicy.emulated,
+          hostArch: 'aarch64',
+          executableArches: const {'x86_64'},
+        ),
+        isTrue,
+      );
+    });
+
+    test('emulated without a handler is still not runnable', () {
+      expect(
+        isRunnableArch(
+          'x86_64',
+          ArchPolicy.emulated,
+          hostArch: 'aarch64',
+          executableArches: const {},
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('ArchSupportCache', () {
+    test('scans once and reuses the answer', () {
+      var calls = 0;
+      final cache = ArchSupportCache(
+        cacheFor: const Duration(hours: 1),
+        scan: () {
+          calls++;
+          return {'aarch64'};
+        },
+      );
+      for (var i = 0; i < 50; i++) {
+        expect(cache.executableArches(), {'aarch64'});
+      }
+      expect(calls, 1, reason: 'a list view must not rescan per row');
+      expect(cache.scans, 1);
+    });
+
+    // The user-visible case: someone disables or removes an emulator while the
+    // app is running. Nothing about binfmt_misc can be watched cheaply, so the
+    // caller has to say when to look again.
+    test('invalidate makes the next query consult the kernel', () {
+      var current = {'aarch64', 'riscv64'};
+      var calls = 0;
+      final cache = ArchSupportCache(
+        cacheFor: const Duration(hours: 1),
+        scan: () {
+          calls++;
+          return current;
+        },
+      );
+      expect(cache.executableArches(), {'aarch64', 'riscv64'});
+
+      current = {'aarch64'}; // user disabled qemu-riscv64
+      expect(cache.executableArches(), {'aarch64', 'riscv64'}, reason: 'stale');
+
+      cache.invalidate();
+      expect(cache.executableArches(), {'aarch64'});
+      expect(calls, 2);
+    });
+
+    test('a zero window rescans every time', () {
+      var calls = 0;
+      final cache = ArchSupportCache(
+        cacheFor: Duration.zero,
+        scan: () {
+          calls++;
+          return const {'aarch64'};
+        },
+      );
+      cache.executableArches();
+      cache.executableArches();
+      cache.executableArches();
+      expect(calls, 3);
+    });
+
+    test('invalidating before any query is harmless', () {
+      final cache = ArchSupportCache(scan: () => const {'aarch64'});
+      cache.invalidate();
+      expect(cache.executableArches(), {'aarch64'});
+      expect(cache.scans, 1);
+    });
+
+    test('defaults to reading the live kernel', () {
+      // No scan injected: it must reach binfmt_misc without throwing, whatever
+      // this machine has registered.
+      final cache = ArchSupportCache();
+      expect(cache.executableArches(), isA<Set<String>>());
+    });
+  });
+
   group('candidateArches', () {
     test('native is the host alone', () {
       expect(candidateArches(ArchPolicy.native, hostArch: 'aarch64'), [
