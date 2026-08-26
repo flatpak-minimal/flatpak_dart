@@ -20,7 +20,7 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub get
-      - run: dart format --set-exit-if-changed lib/ test/
+      - run: dart format --set-exit-if-changed lib/ test/ hook/ example/
 
   # ── Ubuntu x86_64 ────────────────────────────────────────────────────
   build-ubuntu-x64:
