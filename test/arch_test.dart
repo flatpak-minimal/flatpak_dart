@@ -45,8 +45,9 @@ void main() {
   });
 
   group('compatibleArches', () {
-    // Verified against `flatpak --supported-arches` on x86_64, which reports
-    // exactly these two in this order.
+    // Both rows verified against `flatpak --supported-arches` on real hardware
+    // of that architecture: flatpak 1.18.1 on x86_64, and flatpak 1.16.6 on an
+    // aarch64 Raspberry Pi 5. Order matters and matches.
     test('x86_64 also runs i386', () {
       expect(compatibleArches('x86_64'), ['x86_64', 'i386']);
     });

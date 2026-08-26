@@ -62,8 +62,10 @@ String? flatpakArchFor(String machine) => switch (machine) {
 /// Architectures [hostArch] runs natively, most preferred first.
 ///
 /// Mirrors `flatpak_get_supported_arches()`: a 64-bit host also runs its
-/// 32-bit personality. Verified against `flatpak --supported-arches` on
-/// x86_64, which reports exactly `x86_64, i386`.
+/// 32-bit personality. Verified against `flatpak --supported-arches` on both
+/// architectures this table names — flatpak 1.18.1 on x86_64 reports exactly
+/// `x86_64, i386`, and flatpak 1.16.6 on an aarch64 Raspberry Pi 5 reports
+/// exactly `aarch64, arm`, in that order.
 List<String> compatibleArches(String hostArch) => switch (hostArch) {
   'x86_64' => const ['x86_64', 'i386'],
   'aarch64' => const ['aarch64', 'arm'],
