@@ -18,6 +18,11 @@ no subprocess spawning, no text parsing.
 | Subset filtering | `client.remotes.modifySubset(name, RemoteSubset.verified)` |
 | Pre-install permissions | `client.fetchRemoteMetadata(remote, ref)` |
 | Update monitoring | `client.watchUpdates()` (inotify, state-diffed) |
+| Installed app icons | `client.appStream.installedIconPath(appId)` |
+| AppStream metadata | `client.appStream.componentDetail(appId)` (icons, screenshots, releases) |
+| Catalog refresh | `client.appStream.refresh(remote)` |
+| Portal permissions | `client.permissionsStore.check(appId, perms)`, `.set()`, `.removeAllForApp()` |
+| Launch permission prompts | `client.launchWithPermissions(appId)`, `client.permissionFlow.requests` |
 | Known remotes catalog | `KnownRemotes.flathub`, `.fedora`, `.gnomeNightly`, etc. |
 
 ## Architecture
@@ -39,13 +44,24 @@ Payloads encoded with BEVE-Lite binary codec (glaze_meta.h)
 
 ```bash
 # Fedora
-sudo dnf install flatpak-devel glib2-devel cmake ninja-build clang
+sudo dnf install flatpak-devel glib2-devel sqlite-devel \
+    cmake ninja-build clang
 
 # Ubuntu / Debian
-sudo apt install libflatpak-dev libglib2.0-dev cmake ninja-build clang-19
+sudo apt install libflatpak-dev libglib2.0-dev libsqlite3-dev \
+    cmake ninja-build clang-19
 ```
 
-## Quick start
+`sqlite-devel` / `libsqlite3-dev` is required by the `appstream_dart`
+dependency, whose build hook compiles against `sqlite3.h`. The remaining
+packages are for this package's own native bridge.
+
+## Building
+
+There is **no manual build step**. The native library (`libflatpak_nc.so`) is
+compiled automatically by the package's build hook the first time you run tests,
+run an example, or build a Flutter app — and resolved automatically at runtime
+(no environment variables).
 
 Add the package and run. The native library is built automatically by the
 build hook the first time you run, so there is nothing to compile by hand:
@@ -63,6 +79,28 @@ cd flatpak_dart
 dart pub get
 dart run example/example.dart
 ```
+
+In a Flutter app, just add the dependency — `flutter run -d linux` /
+`flutter build linux` build and bundle the native library for you:
+
+```yaml
+dependencies:
+  flatpak_dart: ^0.1.0
+```
+
+<details>
+<summary>Manual native build (only for C++ work or CI)</summary>
+
+```bash
+./scripts/build_release.sh                    # → build-release/libflatpak_nc.so
+# explicit toolchain:
+CC=clang-19 CXX=clang++-19 ./scripts/build_release.sh
+```
+
+The hook always uses the system default compiler (matching the host's
+`libflatpak`). For a manual build, avoid forcing a `-stdlib=libc++` toolchain —
+mixing C++ runtimes with the system libraries aborts at load time.
+</details>
 
 ## Usage
 
@@ -154,22 +192,12 @@ await Future.wait([
 | `KnownRemotes.gnomeNightly` | GNOME Nightly | Nightly builds |
 | `KnownRemotes.kdeRuntimeNightly` | KDE Nightly | KDE runtime |
 
-## Building the native library
-
-The package includes a C++23 shared library that bridges Dart FFI to libflatpak.
+## Developer scripts
 
 ```bash
-# Release build
-./scripts/build_release.sh
-
-# ASAN + UBSan
-./scripts/asan.sh
-
-# clang-tidy
-./scripts/clang_tidy.sh
-
-# Coverage
-./scripts/coverage.sh
+./scripts/asan.sh          # AddressSanitizer + UBSan
+./scripts/clang_tidy.sh    # clang-tidy
+./scripts/coverage.sh      # coverage report
 ```
 
 These scripts build into their own directories for sanitizer and coverage

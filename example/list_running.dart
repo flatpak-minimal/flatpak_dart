@@ -12,9 +12,11 @@ Future<void> main() async {
   } else {
     print('${running.length} running instance(s):');
     for (final i in running) {
-      print('  ${i.appId.padRight(36)} '
-          'instance=${i.instanceId} pid=${i.pid} '
-          'child=${i.childPid} running=${i.isRunning}');
+      print(
+        '  ${i.appId.padRight(36)} '
+        'instance=${i.instanceId} pid=${i.pid} '
+        'child=${i.childPid} running=${i.isRunning}',
+      );
     }
   }
 

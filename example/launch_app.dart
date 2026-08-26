@@ -10,8 +10,10 @@ Future<void> main(List<String> args) async {
 
   print('Launching $appId ...');
   final instance = await client.launch(appId);
-  print('instance=${instance.instanceId} pid=${instance.pid} '
-      'childPid=${instance.childPid}');
+  print(
+    'instance=${instance.instanceId} pid=${instance.pid} '
+    'childPid=${instance.childPid}',
+  );
 
   print('\nStopping $appId ...');
   await client.stop(appId);

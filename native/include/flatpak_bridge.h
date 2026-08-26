@@ -37,7 +37,7 @@ void flatpak_reader_list_apps(void* handle, Dart_Port port, bool include_runtime
 void flatpak_reader_list_remotes(void* handle, Dart_Port port);
 void flatpak_reader_get_remote_info(void* handle, Dart_Port port, const char* name);
 void flatpak_reader_list_remote_apps(void* handle, Dart_Port port, const char* name,
-                                     const char* arch, bool include_runtimes);
+                                     const char* arch, bool include_runtimes, bool wayland_only);
 void flatpak_reader_get_app_info(void* handle, Dart_Port port, const char* app_id, const char* arch,
                                  const char* branch);
 void flatpak_reader_get_permissions(void* handle, Dart_Port port, const char* app_id);
@@ -46,6 +46,10 @@ void flatpak_reader_check_updates(void* handle, Dart_Port port);
 // Posts the raw metadata string as a 0x01 payload, then 0xFF sentinel.
 void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const char* remote,
                                           const char* ref);
+// Refresh the on-disk AppStream catalog for a remote (empty arch = default arch).
+// Wraps flatpak_installation_update_appstream_sync(); posts 0xFF on success, 0x02 on error.
+void flatpak_reader_refresh_appstream(void* handle, Dart_Port port, const char* remote,
+                                      const char* arch);
 // Launch an installed app via flatpak_installation_launch_full() with
 // FLATPAK_LAUNCH_FLAGS_DO_NOT_REAP. Returns immediately; the launch runs on the
 // reader's serial launch thread. On success posts the resulting FlatpakInstance
@@ -69,6 +73,19 @@ void flatpak_reader_stop(void* handle, Dart_Port port, const char* app_id);
 void flatpak_reader_list_running(void* handle, Dart_Port port);
 // Invalidate cached data so next list call returns fresh results.
 void flatpak_reader_drop_caches(void* handle);
+
+// System introspection. Posts a single 0x01 string/glaze payload then 0xFF,
+void flatpak_reader_get_version(void* handle, Dart_Port port);
+void flatpak_reader_get_default_arch(void* handle, Dart_Port port);
+void flatpak_reader_get_supported_arches(void* handle, Dart_Port port);
+void flatpak_reader_list_system_installations(void* handle, Dart_Port port);
+
+// Runtime/extension resolution.
+void flatpak_reader_get_runtime_ref(void* handle, Dart_Port port, const char* app_id,
+                                    const char* arch, const char* branch);
+void flatpak_reader_is_ref_installed(void* handle, Dart_Port port, const char* ref);
+void flatpak_reader_list_missing_extensions(void* handle, Dart_Port port, const char* app_id,
+                                            const char* arch, const char* branch);
 
 // ── User-installation remote management (no polkit required) ─────────────
 void* flatpak_user_remote_create(Dart_Port result_port);

@@ -4,6 +4,7 @@
 
 #include "installation_reader.h"
 
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/syscall.h>
@@ -16,7 +17,10 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "flatpak_bridge.h"
 #include "flatpak_post.h"
@@ -45,6 +49,10 @@ static void post_op_error(Dart_Port port, const char* msg) {
     flatpak_nc::post_framed_error(port, 0x03, msg);
 }
 
+static void post_string(Dart_Port port, const char* s) {
+    flatpak_nc::post_framed_error(port, 0x01, s);
+}
+
 static const char* safe_str(const char* s) {
     return s ? s : "";
 }
@@ -55,24 +63,189 @@ static const char* safe_str(const char* s) {
 // steal exit statuses from whatever else the embedder has spawned — so we wait
 // on the specific pid.
 //
-// TODO: this parks one thread per launched app for that app's entire lifetime.
-// Replace with a single reaper thread multiplexing pidfds via epoll, reaping
-// with waitpid(pid, &status, WNOHANG) on POLLIN, which scales to N running apps
-// with one thread.
-static gpointer reap_thread(gpointer data) {
-    auto pid = static_cast<GPid>(GPOINTER_TO_INT(data));
-    int status = 0;
-    // Retry on EINTR: a single unrestarted waitpid() would abandon the child as a zombie for the
-    // lifetime of the host process, which is exactly what this reaper exists to prevent. The Dart
-    // VM's profiler delivers SIGPROF, and embedders install handlers of their own.
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+// One reaper thread serves every launched app. It parks in poll() over the
+// launched children's pidfds and reaps with WNOHANG when one becomes readable,
+// so a session that launches N apps costs one thread rather than N. The thread
+// is started on the first launch and exits once the last child is reaped.
+namespace {
+
+class ChildReaper {
+   public:
+    static ChildReaper& instance() {
+        static ChildReaper reaper;
+        return reaper;
     }
-    return nullptr;
-}
+
+    void add(GPid pid) {
+        int pidfd = pidfd_open(pid);
+        if (pidfd < 0) {
+            // No pidfd (pre-5.3 kernel, or the child is already gone). Fall back to a dedicated
+            // blocking wait so the child is still reaped.
+            std::thread([pid] { wait_for(pid); }).detach();
+            return;
+        }
+
+        bool start = false;
+        {
+            std::lock_guard lk(mu_);
+            pending_.push_back({pid, pidfd});
+            if (!running_) {
+                running_ = true;
+                start = true;
+            }
+        }
+        if (start) {
+            std::thread(&ChildReaper::loop, this).detach();
+        }
+        wake();
+    }
+
+   private:
+    struct Child {
+        GPid pid;
+        int pidfd;
+    };
+
+    ChildReaper() {
+        // O_NONBLOCK on both ends: the reader drains until EAGAIN, and the writer must never
+        // block the launching thread if the pipe fills.
+        if (pipe2(wake_fds_, O_NONBLOCK | O_CLOEXEC) != 0) {
+            wake_fds_[0] = wake_fds_[1] = -1;
+        }
+    }
+
+    static int pidfd_open(pid_t pid) {
+        return static_cast<int>(syscall(SYS_pidfd_open, pid, 0));
+    }
+
+    static void wait_for(GPid pid) {
+        int status = 0;
+        // Retry on EINTR: an unrestarted waitpid() would abandon the child as a zombie for the
+        // lifetime of the host process, which is exactly what this reaper exists to prevent. The
+        // Dart VM's profiler delivers SIGPROF, and embedders install handlers of their own.
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+    }
+
+    void wake() {
+        if (wake_fds_[1] >= 0) {
+            const char b = 0;
+            ssize_t ignored = write(wake_fds_[1], &b, 1);
+            (void)ignored;
+        }
+    }
+
+    void loop() {
+        std::vector<Child> watched;
+        std::vector<pollfd> fds;
+
+        for (;;) {
+            {
+                std::lock_guard lk(mu_);
+                watched.insert(watched.end(), pending_.begin(), pending_.end());
+                pending_.clear();
+                if (watched.empty()) {
+                    running_ = false;
+                    return;
+                }
+            }
+
+            fds.clear();
+            fds.reserve(watched.size() + 1);
+            if (wake_fds_[0] >= 0) {
+                fds.push_back({wake_fds_[0], POLLIN, 0});
+            }
+            for (const auto& c : watched) {
+                fds.push_back({c.pidfd, POLLIN, 0});
+            }
+
+            if (poll(fds.data(), fds.size(), -1) < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                // poll() cannot recover; reap what we hold so nothing is left a zombie.
+                for (const auto& c : watched) {
+                    wait_for(c.pid);
+                    close(c.pidfd);
+                }
+                std::lock_guard lk(mu_);
+                running_ = false;
+                return;
+            }
+
+            const size_t offset = (wake_fds_[0] >= 0) ? 1 : 0;
+            if (offset == 1 && (fds[0].revents & POLLIN) != 0) {
+                char drain[64];
+                while (read(wake_fds_[0], drain, sizeof(drain)) > 0) {
+                }
+            }
+
+            size_t kept = 0;
+            for (size_t i = 0; i < watched.size(); i++) {
+                if (fds[i + offset].revents == 0) {
+                    watched[kept++] = watched[i];
+                    continue;
+                }
+                int status = 0;
+                while (waitpid(watched[i].pid, &status, WNOHANG) < 0 && errno == EINTR) {
+                }
+                close(watched[i].pidfd);
+            }
+            watched.resize(kept);
+        }
+    }
+
+    std::mutex mu_;
+    std::vector<Child> pending_;
+    bool running_ = false;
+    int wake_fds_[2]{-1, -1};
+};
+
+}  // namespace
 
 static void reap_async(GPid pid) {
-    GThread* t = g_thread_new("flatpak-reap", reap_thread, GINT_TO_POINTER(pid));
-    g_thread_unref(t);
+    ChildReaper::instance().add(pid);
+}
+
+// Resolve an installed app ref from optional arch/branch hints.
+// get_current_installed_app() takes no arch, so it is only used when neither
+// hint narrows the lookup; an arch-only lookup scans the installed apps.
+static FlatpakInstalledRef* get_installed_app_ref(FlatpakInstallation* installation,
+                                                  const char* app_id, const char* arch,
+                                                  const char* branch, GError** error) {
+    const char* want_arch = (arch && *arch) ? arch : nullptr;
+    const char* want_branch = (branch && *branch) ? branch : nullptr;
+
+    if (want_branch) {
+        return flatpak_installation_get_installed_ref(installation, FLATPAK_REF_KIND_APP, app_id,
+                                                      want_arch, want_branch, nullptr, error);
+    }
+    if (!want_arch) {
+        return flatpak_installation_get_current_installed_app(installation, app_id, nullptr, error);
+    }
+
+    g_autoptr(GPtrArray) refs = flatpak_installation_list_installed_refs_by_kind(
+        installation, FLATPAK_REF_KIND_APP, nullptr, error);
+    if (!refs) {
+        return nullptr;
+    }
+    FlatpakInstalledRef* match = nullptr;
+    for (guint i = 0; i < refs->len; i++) {
+        auto* iref = static_cast<FlatpakInstalledRef*>(refs->pdata[i]);
+        if (g_strcmp0(flatpak_ref_get_name(FLATPAK_REF(iref)), app_id) != 0 ||
+            g_strcmp0(flatpak_ref_get_arch(FLATPAK_REF(iref)), want_arch) != 0) {
+            continue;
+        }
+        if (!match || flatpak_installed_ref_get_is_current(iref)) {
+            match = iref;
+        }
+    }
+    if (!match) {
+        g_set_error(error, FLATPAK_ERROR, FLATPAK_ERROR_NOT_INSTALLED, "%s/%s is not installed",
+                    app_id, want_arch);
+        return nullptr;
+    }
+    return static_cast<FlatpakInstalledRef*>(g_object_ref(match));
 }
 
 // ── InstallationReader ──────────────────────────────────────────────────────
@@ -225,8 +398,26 @@ void InstallationReader::get_remote_info(Dart_Port port, const char* name) {
     post_sentinel(port);
 }
 
+namespace {
+
+bool remote_ref_has_socket(FlatpakRemoteRef* fref, const char* socket_name) {
+    GBytes* metadata = flatpak_remote_ref_get_metadata(fref);
+    if (!metadata) {
+        return false;
+    }
+    gsize len = 0;
+    auto* data = static_cast<const char*>(g_bytes_get_data(metadata, &len));
+    g_autoptr(GKeyFile) kf = g_key_file_new();
+    if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, nullptr)) {
+        return false;
+    }
+    g_autofree char* sockets = g_key_file_get_string(kf, "Context", "sockets", nullptr);
+    return sockets && strstr(sockets, socket_name) != nullptr;
+}
+}  // namespace
+
 void InstallationReader::list_remote_apps(Dart_Port port, const char* name, const char* arch,
-                                          bool include_runtimes) {
+                                          bool include_runtimes, bool wayland_only) {
     g_autoptr(GError) err = nullptr;
     g_autoptr(GPtrArray) refs =
         flatpak_installation_list_remote_refs_sync(installation_, name, nullptr, &err);
@@ -236,10 +427,15 @@ void InstallationReader::list_remote_apps(Dart_Port port, const char* name, cons
     }
     for (guint i = 0; i < refs->len; i++) {
         auto* fref = static_cast<FlatpakRemoteRef*>(refs->pdata[i]);
-        if (!include_runtimes && flatpak_ref_get_kind(FLATPAK_REF(fref)) != FLATPAK_REF_KIND_APP) {
+        bool is_app = flatpak_ref_get_kind(FLATPAK_REF(fref)) == FLATPAK_REF_KIND_APP;
+        if (!include_runtimes && !is_app) {
             continue;
         }
         if (arch && *arch && g_strcmp0(flatpak_ref_get_arch(FLATPAK_REF(fref)), arch) != 0) {
+            continue;
+        }
+        // Skip apps that don't request the wayland socket.
+        if (wayland_only && is_app && !remote_ref_has_socket(fref, "wayland")) {
             continue;
         }
         FpRef ref;
@@ -258,9 +454,8 @@ void InstallationReader::list_remote_apps(Dart_Port port, const char* name, cons
 void InstallationReader::get_app_info(Dart_Port port, const char* app_id, const char* arch,
                                       const char* branch) {
     g_autoptr(GError) err = nullptr;
-    g_autoptr(FlatpakInstalledRef) iref = flatpak_installation_get_installed_ref(
-        installation_, FLATPAK_REF_KIND_APP, app_id, (arch && *arch) ? arch : nullptr,
-        (branch && *branch) ? branch : nullptr, nullptr, &err);
+    g_autoptr(FlatpakInstalledRef) iref =
+        get_installed_app_ref(installation_, app_id, arch, branch, &err);
     if (!iref) {
         post_error(port, err->message);
         return;
@@ -289,7 +484,43 @@ void InstallationReader::get_app_info(Dart_Port port, const char* app_id, const 
 }
 
 void InstallationReader::get_permissions(Dart_Port port, const char* app_id) {
-    (void)app_id;
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakInstalledRef) iref =
+        get_installed_app_ref(installation_, app_id, "", "", &err);
+    if (!iref) {
+        post_error(port, err ? err->message : "app not installed");
+        return;
+    }
+    err = nullptr;
+    g_autoptr(GBytes) bytes = flatpak_installed_ref_load_metadata(iref, nullptr, &err);
+    if (!bytes) {
+        post_error(port, err ? err->message : "failed to load metadata");
+        return;
+    }
+    gsize len = 0;
+    auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &len));
+    g_autoptr(GKeyFile) kf = g_key_file_new();
+    if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, &err)) {
+        post_error(port, err ? err->message : "failed to parse metadata");
+        return;
+    }
+
+    const char* sections[] = {"Context", "Session Bus Policy", "System Bus Policy", "Environment",
+                              nullptr};
+    for (const char** sp = sections; *sp; ++sp) {
+        g_auto(GStrv) keys = g_key_file_get_keys(kf, *sp, nullptr, nullptr);
+        if (!keys) {
+            continue;
+        }
+        for (gsize i = 0; keys[i]; i++) {
+            g_autofree char* val = g_key_file_get_string(kf, *sp, keys[i], nullptr);
+            FpMetadataEntry entry;
+            entry.section = *sp;
+            entry.key = keys[i];
+            entry.value = val ? val : "";
+            post_glaze(port, 0x01, entry);
+        }
+    }
     post_sentinel(port);
 }
 
@@ -801,6 +1032,185 @@ void InstallationReader::drop_caches() {
     flatpak_installation_drop_caches(installation_, nullptr, &err);
 }
 
+void InstallationReader::get_version(Dart_Port port) {
+    char version[32];
+    std::snprintf(version, sizeof(version), "%d.%d.%d", FLATPAK_MAJOR_VERSION,
+                  FLATPAK_MINOR_VERSION, FLATPAK_MICRO_VERSION);
+    post_string(port, version);
+    post_sentinel(port);
+}
+
+void InstallationReader::get_default_arch(Dart_Port port) {
+    post_string(port, safe_str(flatpak_get_default_arch()));
+    post_sentinel(port);
+}
+
+void InstallationReader::get_supported_arches(Dart_Port port) {
+    const char* const* arches = flatpak_get_supported_arches();
+    for (const char* const* p = arches; p && *p; ++p) {
+        post_string(port, *p);
+    }
+    post_sentinel(port);
+}
+
+void InstallationReader::list_system_installations(Dart_Port port) {
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(GPtrArray) installs = flatpak_get_system_installations(nullptr, &err);
+    if (!installs) {
+        post_error(port, err ? err->message : "failed to list system installations");
+        return;
+    }
+    for (guint i = 0; i < installs->len; i++) {
+        auto* inst = static_cast<FlatpakInstallation*>(installs->pdata[i]);
+        FpInstallationInfo info;
+        info.id = safe_str(flatpak_installation_get_id(inst));
+        info.displayName = safe_str(flatpak_installation_get_display_name(inst));
+        g_autoptr(GFile) path = flatpak_installation_get_path(inst);
+        g_autofree char* path_str = path ? g_file_get_path(path) : nullptr;
+        info.path = safe_str(path_str);
+        info.isUser = flatpak_installation_get_is_user(inst);
+        info.priority = flatpak_installation_get_priority(inst);
+        post_glaze(port, 0x01, info);
+    }
+    post_sentinel(port);
+}
+
+void InstallationReader::get_runtime_ref(Dart_Port port, const char* app_id, const char* arch,
+                                         const char* branch) {
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakInstalledRef) iref =
+        get_installed_app_ref(installation_, app_id, arch, branch, &err);
+    if (!iref) {
+        post_error(port, err ? err->message : "app not installed");
+        return;
+    }
+    err = nullptr;
+    g_autoptr(GBytes) bytes = flatpak_installed_ref_load_metadata(iref, nullptr, &err);
+    if (!bytes) {
+        post_error(port, err ? err->message : "failed to load metadata");
+        return;
+    }
+    gsize len = 0;
+    auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &len));
+    g_autoptr(GKeyFile) kf = g_key_file_new();
+    if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, &err)) {
+        post_error(port, err ? err->message : "failed to parse metadata");
+        return;
+    }
+    g_autofree char* runtime = g_key_file_get_string(kf, "Application", "runtime", nullptr);
+    if (!runtime || !*runtime) {
+        post_error(port, "no runtime declared");
+        return;
+    }
+    post_string(port, runtime);
+    post_sentinel(port);
+}
+
+void InstallationReader::is_ref_installed(Dart_Port port, const char* ref) {
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakRef) fref = flatpak_ref_parse(ref, &err);
+    if (!fref) {
+        post_error(port, err ? err->message : "invalid ref");
+        return;
+    }
+    err = nullptr;
+    g_autoptr(FlatpakInstalledRef) iref = flatpak_installation_get_installed_ref(
+        installation_, flatpak_ref_get_kind(fref), flatpak_ref_get_name(fref),
+        flatpak_ref_get_arch(fref), flatpak_ref_get_branch(fref), nullptr, &err);
+    post_string(port, iref ? "1" : "0");
+    post_sentinel(port);
+}
+
+void InstallationReader::list_missing_extensions(Dart_Port port, const char* app_id,
+                                                 const char* arch, const char* branch) {
+    g_autoptr(GError) err = nullptr;
+    g_autoptr(FlatpakInstalledRef) iref =
+        get_installed_app_ref(installation_, app_id, arch, branch, &err);
+    if (!iref) {
+        post_error(port, err ? err->message : "app not installed");
+        return;
+    }
+    err = nullptr;
+    g_autoptr(GBytes) bytes = flatpak_installed_ref_load_metadata(iref, nullptr, &err);
+    if (!bytes) {
+        post_error(port, err ? err->message : "failed to load metadata");
+        return;
+    }
+    gsize len = 0;
+    auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &len));
+    g_autoptr(GKeyFile) kf = g_key_file_new();
+    if (!g_key_file_load_from_data(kf, data, len, G_KEY_FILE_NONE, &err)) {
+        post_error(port, err ? err->message : "failed to parse metadata");
+        return;
+    }
+
+    const char* app_arch = safe_str(flatpak_ref_get_arch(FLATPAK_REF(iref)));
+    const char* app_branch = safe_str(flatpak_ref_get_branch(FLATPAK_REF(iref)));
+
+    g_auto(GStrv) groups = g_key_file_get_groups(kf, nullptr);
+    for (gsize i = 0; groups && groups[i]; i++) {
+        const char* group = groups[i];
+        if (strncmp(group, "Extension ", 10) != 0) {
+            continue;
+        }
+        const char* ext_id = group + 10;
+        if (g_key_file_get_boolean(kf, group, "no-autodownload", nullptr)) {
+            continue;  // optional extension, not required at app-install time
+        }
+        // subdirectories=true: installable refs are <point>.<suffix>, enumerated from the remote
+        // rather than named here.
+        if (g_key_file_get_boolean(kf, group, "subdirectories", nullptr)) {
+            continue;
+        }
+
+        // "versions" is a ;-list of acceptable branches, any one of which satisfies the extension.
+        // "version" is the single-branch form. Neither key means "same branch as the app".
+        std::vector<std::string> branches;
+        g_auto(GStrv) versions =
+            g_key_file_get_string_list(kf, group, "versions", nullptr, nullptr);
+        for (gsize v = 0; versions && versions[v]; v++) {
+            if (*versions[v]) {
+                branches.emplace_back(versions[v]);
+            }
+        }
+        if (branches.empty()) {
+            g_autofree char* version = g_key_file_get_string(kf, group, "version", nullptr);
+            branches.emplace_back((version && *version) ? version : app_branch);
+        }
+
+        bool installed = false;
+        for (const auto& ext_branch : branches) {
+            g_autoptr(GError) inst_err = nullptr;
+            g_autoptr(FlatpakInstalledRef) ext_iref = flatpak_installation_get_installed_ref(
+                installation_, FLATPAK_REF_KIND_RUNTIME, ext_id, app_arch, ext_branch.c_str(),
+                nullptr, &inst_err);
+            if (ext_iref) {
+                installed = true;
+                break;
+            }
+        }
+        if (!installed) {
+            std::string ref_str =
+                std::string("runtime/") + ext_id + "/" + app_arch + "/" + branches.front();
+            post_string(port, ref_str.c_str());
+        }
+    }
+    post_sentinel(port);
+}
+
+void InstallationReader::refresh_appstream(Dart_Port port, const char* remote, const char* arch) {
+    const char* use_arch = (arch && *arch) ? arch : nullptr;  // NULL = default arch
+    g_autoptr(GError) err = nullptr;
+    gboolean changed = FALSE;
+    gboolean ok = flatpak_installation_update_appstream_sync(installation_, remote, use_arch,
+                                                             &changed, nullptr, &err);
+    if (!ok) {
+        post_error(port, err ? err->message : "appstream refresh failed");
+        return;
+    }
+    post_sentinel(port);
+}
+
 // ── C ABI wrappers ──────────────────────────────────────────────────────────
 
 static FlatpakInstallation* open_installation(const char* name) {
@@ -844,8 +1254,9 @@ void flatpak_reader_get_remote_info(void* handle, Dart_Port port, const char* na
 }
 
 void flatpak_reader_list_remote_apps(void* handle, Dart_Port port, const char* name,
-                                     const char* arch, bool include_runtimes) {
-    static_cast<InstallationReader*>(handle)->list_remote_apps(port, name, arch, include_runtimes);
+                                     const char* arch, bool include_runtimes, bool wayland_only) {
+    static_cast<InstallationReader*>(handle)->list_remote_apps(port, name, arch, include_runtimes,
+                                                               wayland_only);
 }
 
 void flatpak_reader_get_app_info(void* handle, Dart_Port port, const char* app_id, const char* arch,
@@ -866,6 +1277,11 @@ void flatpak_reader_fetch_remote_metadata(void* handle, Dart_Port port, const ch
     static_cast<InstallationReader*>(handle)->fetch_remote_metadata(port, remote, ref);
 }
 
+void flatpak_reader_refresh_appstream(void* handle, Dart_Port port, const char* remote,
+                                      const char* arch) {
+    static_cast<InstallationReader*>(handle)->refresh_appstream(port, remote, arch);
+}
+
 void flatpak_reader_launch(void* handle, Dart_Port port, const char* app_id, const char* arch,
                            const char* branch, const char* commit) {
     static_cast<InstallationReader*>(handle)->launch(port, app_id, arch, branch, commit);
@@ -881,6 +1297,36 @@ void flatpak_reader_list_running(void* handle, Dart_Port port) {
 
 void flatpak_reader_drop_caches(void* handle) {
     static_cast<InstallationReader*>(handle)->drop_caches();
+}
+
+void flatpak_reader_get_version(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->get_version(port);
+}
+
+void flatpak_reader_get_default_arch(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->get_default_arch(port);
+}
+
+void flatpak_reader_get_supported_arches(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->get_supported_arches(port);
+}
+
+void flatpak_reader_list_system_installations(void* handle, Dart_Port port) {
+    static_cast<InstallationReader*>(handle)->list_system_installations(port);
+}
+
+void flatpak_reader_get_runtime_ref(void* handle, Dart_Port port, const char* app_id,
+                                    const char* arch, const char* branch) {
+    static_cast<InstallationReader*>(handle)->get_runtime_ref(port, app_id, arch, branch);
+}
+
+void flatpak_reader_is_ref_installed(void* handle, Dart_Port port, const char* ref) {
+    static_cast<InstallationReader*>(handle)->is_ref_installed(port, ref);
+}
+
+void flatpak_reader_list_missing_extensions(void* handle, Dart_Port port, const char* app_id,
+                                            const char* arch, const char* branch) {
+    static_cast<InstallationReader*>(handle)->list_missing_extensions(port, app_id, arch, branch);
 }
 
 }  // extern "C"

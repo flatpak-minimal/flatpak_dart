@@ -1,3 +1,47 @@
+## 0.3.0
+
+- Add AppStream catalog support. `FlatpakClient.appStream` locates a remote's
+  downloaded catalog, refreshes it through
+  `flatpak_installation_update_appstream_sync()`, and resolves full component
+  metadata — icons, screenshots, releases, categories — via `appstream_dart`.
+  `installedIconPath()` resolves an installed app's on-disk icon with no
+  catalog at all.
+- Add an xdg-desktop-portal PermissionStore client.
+  `FlatpakClient.permissionsStore` reads and writes per-app permission
+  decisions (devices, location, notifications, background), and
+  `FlatpakClient.permissionFlow` drives launch-time prompts, persisting each
+  answer. `launchWithPermissions()` combines the two and reports the resolved
+  status of every permission alongside the launched instance.
+- Add system introspection: `getVersion()`, `getDefaultArch()`,
+  `getSupportedArches()`, `listSystemInstallations()`, `getSystemStorage()`,
+  `ensureRuntime()` and `installExtensions()`.
+- Add `waylandOnly` to remote app listing, filtering to refs that request the
+  wayland socket.
+- Delegate app lifecycle to the host when running inside a Flatpak sandbox.
+  `launch()`, `stop()` and `listRunning()` route through
+  `flatpak-spawn --host` there, because bwrap and the instance directory are
+  not reachable from inside a sandbox. Requires
+  `--talk-name=org.freedesktop.Flatpak` in the caller's finish-args.
+- Honour an explicit `arch` when no branch is given. Resolving an installed app
+  through `flatpak_installation_get_current_installed_app()` silently dropped
+  the arch and returned the host-arch ref instead.
+- Skip `subdirectories=true` extension points in `installExtensions()`. Their
+  installable refs are `<point>.<suffix>`, enumerated from the remote, so the
+  bare extension point resolved nowhere. `versions=` is now honoured alongside
+  `version=`.
+- Batch APIs for list-shaped work: `appStream.componentDetails()` resolves
+  metadata for many apps reusing one open catalog, and
+  `appStream.installedIconPaths()` resolves icons from a single enumeration.
+  The single-app forms delegate to them.
+- Cache AppStream catalogs under `XDG_CACHE_HOME/flatpak_dart` (0700) instead
+  of a shared temp directory, keyed by a hash of the installation path.
+  `FlatpakClient.close()` releases the open catalog handles.
+- Reap launched sandboxes from one multiplexed thread rather than one thread
+  per running app.
+- New dependencies: `appstream_dart` and `dbus`. `appstream_dart` builds
+  against SQLite, so `sqlite-devel` / `libsqlite3-dev` joins the
+  prerequisites.
+
 ## 0.2.0
 
 - Add app lifecycle control. `FlatpakClient.launch()` starts an installed

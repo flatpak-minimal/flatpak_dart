@@ -50,7 +50,7 @@ external void _readerGetRemoteInfo(
 );
 
 @Native<
-  Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool)
+  Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Bool, Bool)
 >(symbol: 'flatpak_reader_list_remote_apps')
 external void _readerListRemoteApps(
   Pointer<Void> handle,
@@ -58,6 +58,7 @@ external void _readerListRemoteApps(
   Pointer<Utf8> name,
   Pointer<Utf8> arch,
   bool includeRuntimes,
+  bool waylandOnly,
 );
 
 @Native<
@@ -132,6 +133,81 @@ external void _readerStop(Pointer<Void> handle, int port, Pointer<Utf8> appId);
   symbol: 'flatpak_reader_list_running',
 )
 external void _readerListRunning(Pointer<Void> handle, int port);
+
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_refresh_appstream',
+)
+external void _readerRefreshAppstream(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> remote,
+  Pointer<Utf8> arch,
+);
+
+// ── System introspection ─────────────────────────────────────────────────
+
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_get_version',
+)
+external void _readerGetVersion(Pointer<Void> handle, int port);
+
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_get_default_arch',
+)
+external void _readerGetDefaultArch(Pointer<Void> handle, int port);
+
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_get_supported_arches',
+)
+external void _readerGetSupportedArches(Pointer<Void> handle, int port);
+
+@Native<Void Function(Pointer<Void>, Int64)>(
+  symbol: 'flatpak_reader_list_system_installations',
+)
+external void _readerListSystemInstallations(Pointer<Void> handle, int port);
+
+@Native<
+  Void Function(
+    Pointer<Void>,
+    Int64,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+  )
+>(symbol: 'flatpak_reader_get_runtime_ref')
+external void _readerGetRuntimeRef(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> appId,
+  Pointer<Utf8> arch,
+  Pointer<Utf8> branch,
+);
+
+@Native<Void Function(Pointer<Void>, Int64, Pointer<Utf8>)>(
+  symbol: 'flatpak_reader_is_ref_installed',
+)
+external void _readerIsRefInstalled(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> ref,
+);
+
+@Native<
+  Void Function(
+    Pointer<Void>,
+    Int64,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+  )
+>(symbol: 'flatpak_reader_list_missing_extensions')
+external void _readerListMissingExtensions(
+  Pointer<Void> handle,
+  int port,
+  Pointer<Utf8> appId,
+  Pointer<Utf8> arch,
+  Pointer<Utf8> branch,
+);
 
 // ── Worker ──────────────────────────────────────────────────────────────────
 
@@ -357,12 +433,13 @@ abstract final class FlatpakBindings {
     int port,
     String name,
     String arch,
-    bool includeRuntimes,
-  ) {
+    bool includeRuntimes, {
+    bool waylandOnly = false,
+  }) {
     final n = name.toNativeUtf8();
     final a = arch.toNativeUtf8();
     try {
-      _readerListRemoteApps(handle, port, n, a, includeRuntimes);
+      _readerListRemoteApps(handle, port, n, a, includeRuntimes, waylandOnly);
     } finally {
       calloc.free(n);
       calloc.free(a);
@@ -406,6 +483,65 @@ abstract final class FlatpakBindings {
 
   static void readerDropCaches(Pointer<Void> handle) =>
       _readerDropCaches(handle);
+
+  static void readerGetVersion(Pointer<Void> handle, int port) =>
+      _readerGetVersion(handle, port);
+
+  static void readerGetDefaultArch(Pointer<Void> handle, int port) =>
+      _readerGetDefaultArch(handle, port);
+
+  static void readerGetSupportedArches(Pointer<Void> handle, int port) =>
+      _readerGetSupportedArches(handle, port);
+
+  static void readerListSystemInstallations(Pointer<Void> handle, int port) =>
+      _readerListSystemInstallations(handle, port);
+
+  static void readerGetRuntimeRef(
+    Pointer<Void> handle,
+    int port,
+    String appId,
+    String arch,
+    String branch,
+  ) {
+    final id = appId.toNativeUtf8();
+    final a = arch.toNativeUtf8();
+    final b = branch.toNativeUtf8();
+    try {
+      _readerGetRuntimeRef(handle, port, id, a, b);
+    } finally {
+      calloc.free(id);
+      calloc.free(a);
+      calloc.free(b);
+    }
+  }
+
+  static void readerIsRefInstalled(Pointer<Void> handle, int port, String ref) {
+    final r = ref.toNativeUtf8();
+    try {
+      _readerIsRefInstalled(handle, port, r);
+    } finally {
+      calloc.free(r);
+    }
+  }
+
+  static void readerListMissingExtensions(
+    Pointer<Void> handle,
+    int port,
+    String appId,
+    String arch,
+    String branch,
+  ) {
+    final id = appId.toNativeUtf8();
+    final a = arch.toNativeUtf8();
+    final b = branch.toNativeUtf8();
+    try {
+      _readerListMissingExtensions(handle, port, id, a, b);
+    } finally {
+      calloc.free(id);
+      calloc.free(a);
+      calloc.free(b);
+    }
+  }
 
   static void readerFetchRemoteMetadata(
     Pointer<Void> handle,
@@ -456,6 +592,22 @@ abstract final class FlatpakBindings {
 
   static void readerListRunning(Pointer<Void> handle, int port) =>
       _readerListRunning(handle, port);
+
+  static void readerRefreshAppstream(
+    Pointer<Void> handle,
+    int port,
+    String remote,
+    String arch,
+  ) {
+    final r = remote.toNativeUtf8();
+    final a = arch.toNativeUtf8();
+    try {
+      _readerRefreshAppstream(handle, port, r, a);
+    } finally {
+      calloc.free(r);
+      calloc.free(a);
+    }
+  }
 
   // ── Worker ─────────────────────────────────────────────────────────────
   static Pointer<Void> workerCreate(String installation) {

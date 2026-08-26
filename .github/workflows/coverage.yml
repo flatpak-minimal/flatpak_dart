@@ -16,7 +16,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc g++ \
             libflatpak-dev libglib2.0-dev \
-            libgtest-dev gcovr
+            libgtest-dev gcovr \
+            libsqlite3-dev
       - uses: dart-lang/setup-dart@v1
         with: { sdk: stable }
       - run: dart pub global activate coverage && dart pub get

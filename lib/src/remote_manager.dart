@@ -37,10 +37,12 @@ class FlatpakRemoteManager {
     String name, {
     String arch = '',
     bool includeRuntimes = false,
+    bool waylandOnly = false,
   }) => _installation.listRemoteApps(
     name,
     arch: arch,
     includeRuntimes: includeRuntimes,
+    waylandOnly: waylandOnly,
   );
 
   // ── Write operations ───────────────────────────────────────────────────

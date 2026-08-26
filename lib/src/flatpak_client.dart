@@ -10,17 +10,24 @@ library;
 
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'application.dart';
+import 'appstream/catalog.dart';
+import 'exceptions.dart';
 import 'ffi/bindings.dart';
 import 'ffi/codec.dart' show MetadataEntry;
 import 'installation.dart';
+import 'installation_info.dart';
 import 'instance.dart';
 import 'permissions.dart';
+import 'portal/permission_flow.dart';
+import 'portal/permission_store.dart';
 import 'remote.dart';
 import 'remote_manager.dart';
+import 'storage_info.dart';
 import 'transaction.dart';
 import 'update_monitor.dart';
 
@@ -106,6 +113,56 @@ class FlatpakClient {
   /// List running sandbox instances across the host.
   Future<List<FlatpakInstance>> listRunning() => _installation.listRunning();
 
+  // ── AppStream catalog + icons ─────────────────────────────────────────
+
+  FlatpakAppStream? _appStream;
+
+  /// AppStream metadata (icons, screenshots, releases) and installed-app
+  /// icon resolution, backed by the appstream_dart engine.
+  FlatpakAppStream get appStream =>
+      _appStream ??= FlatpakAppStream.forName(_installation);
+
+  // ── Portal permissions (xdg-desktop-portal PermissionStore) ────────────
+
+  PermissionStorePortal? _permissionsStore;
+
+  /// xdg-desktop-portal PermissionStore client (session bus). Persists per-app
+  /// permission decisions for devices, location, notifications, background.
+  PermissionStorePortal get permissionsStore =>
+      _permissionsStore ??= PermissionStorePortal();
+
+  PermissionFlow? _permissionFlow;
+
+  /// Launch-time permission prompts. Listen to [PermissionFlow.requests] and
+  /// call `respond()`; decisions persist via [permissionsStore].
+  PermissionFlow get permissionFlow =>
+      _permissionFlow ??= PermissionFlow(permissionsStore, permissions);
+
+  /// Resolve an app's requested permissions (prompting for unset ones via
+  /// [permissionFlow]) and then [launch] it.
+  ///
+  /// A denial does not abort the launch: the PermissionStore is advisory and
+  /// the portals enforce it when the app asks for the resource. Check
+  /// [LaunchWithPermissionsResult.denied] to gate the launch yourself.
+  Future<LaunchWithPermissionsResult> launchWithPermissions(
+    String appId, {
+    String arch = '',
+    String branch = '',
+    String commit = '',
+  }) async {
+    final permissions = await permissionFlow.ensureLaunchPermissions(appId);
+    final instance = await launch(
+      appId,
+      arch: arch,
+      branch: branch,
+      commit: commit,
+    );
+    return LaunchWithPermissionsResult(
+      instance: instance,
+      permissions: permissions,
+    );
+  }
+
   // ── Write operations (libflatpak FlatpakTransaction serial queue) ───────
 
   /// Install an application from a remote.
@@ -136,6 +193,74 @@ class FlatpakClient {
   /// Call after mutations (add/remove/enable/disable remote) when using
   /// the same client for both writes and reads.
   void dropCaches() => _installation.dropCaches();
+
+  /// The libflatpak version this build links against.
+  Future<String> getVersion() => _installation.getVersion();
+
+  /// The host's default Flatpak architecture.
+  Future<String> getDefaultArch() => _installation.getDefaultArch();
+
+  /// Architectures Flatpak can run on this host, primary arch first.
+  Future<List<String>> getSupportedArches() =>
+      _installation.getSupportedArches();
+
+  /// Every configured Flatpak installation on this host.
+  Future<List<FlatpakInstallationInfo>> listSystemInstallations() =>
+      _installation.listSystemInstallations();
+
+  Future<void> ensureRuntime(String appId) async {
+    final runtimeRef = await _installation.getRuntimeRef(appId);
+    final fullRef = 'runtime/$runtimeRef';
+    if (await _installation.isRefInstalled(fullRef)) return;
+    final app = await info(appId);
+    await install(app.origin, fullRef).result;
+  }
+
+  /// Install every extension [appId] declares (skipping `no-autodownload`).
+  Future<void> installExtensions(String appId) async {
+    final missing = await _installation.listMissingExtensions(appId);
+    if (missing.isEmpty) return;
+    final app = await info(appId);
+    for (final ref in missing) {
+      await install(app.origin, ref).result;
+    }
+  }
+
+  /// Disk usage of the filesystem backing this client's installation.
+  Future<StorageInfo> getSystemStorage() async {
+    final path = _installationPath();
+    final result = await Process.run('df', [
+      '-B1',
+      '--output=size,avail',
+      path,
+    ]);
+    if (result.exitCode != 0) {
+      throw FlatpakRemoteException('df failed for $path: ${result.stderr}');
+    }
+    final lines = (result.stdout as String).trim().split('\n');
+    if (lines.length < 2) {
+      throw FlatpakRemoteException('unexpected df output for $path');
+    }
+    final parts = lines.last.trim().split(RegExp(r'\s+'));
+    final total = int.parse(parts[0]);
+    final available = int.parse(parts[1]);
+    return StorageInfo(totalBytes: total, availableBytes: available);
+  }
+
+  String _installationPath() {
+    switch (_installation.name) {
+      case 'user':
+        final xdg = Platform.environment['XDG_DATA_HOME'];
+        final base = (xdg != null && xdg.isNotEmpty)
+            ? xdg
+            : '${Platform.environment['HOME'] ?? ''}/.local/share';
+        return '$base/flatpak';
+      case 'system':
+        return '/var/lib/flatpak';
+      default:
+        return _installation.name;
+    }
+  }
 
   // ── Update monitor (FlatpakMonitor GObject API, libflatpak >= 1.5.3) ──
 
@@ -172,5 +297,36 @@ class FlatpakClient {
   Future<void> close() async {
     _installation.close();
     _tx.close();
+    await _appStream?.close();
+    await _permissionFlow?.close();
+    await _permissionsStore?.close();
   }
+}
+
+/// Outcome of [FlatpakClient.launchWithPermissions].
+class LaunchWithPermissionsResult {
+  /// The instance libflatpak created for the launch.
+  final FlatpakInstance instance;
+
+  /// Resolved status of every permission the app declares.
+  final Map<String, PermissionStatus> permissions;
+
+  const LaunchWithPermissionsResult({
+    required this.instance,
+    required this.permissions,
+  });
+
+  /// Permissions the user explicitly denied.
+  List<String> get denied => [
+    for (final e in permissions.entries)
+      if (e.value == PermissionStatus.denied) e.key,
+  ];
+
+  /// Permissions still undecided — no listener answered the prompt, or the
+  /// prompt was cancelled.
+  List<String> get unresolved => [
+    for (final e in permissions.entries)
+      if (e.value == PermissionStatus.ask || e.value == PermissionStatus.notSet)
+        e.key,
+  ];
 }
