@@ -15,6 +15,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -706,7 +707,17 @@ static bool read_start_time(pid_t pid, unsigned long long* out) {
         }
         field++;
         if (field == 22) {
-            return sscanf(p, "%llu", out) == 1;
+            // strtoull rather than sscanf: sscanf reports neither "no digits" nor overflow, and
+            // this value is what proves a pid was not recycled before stop() signals it. Silently
+            // accepting a garbage start time would let a stop signal the wrong process.
+            errno = 0;
+            char* end = nullptr;
+            const unsigned long long value = std::strtoull(p, &end, 10);
+            if (end == p || errno == ERANGE) {
+                return false;
+            }
+            *out = value;
+            return true;
         }
         while (*p && *p != ' ') {
             p++;
