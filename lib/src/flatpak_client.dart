@@ -15,6 +15,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'application.dart';
+import 'arch.dart';
 import 'appstream/catalog.dart';
 import 'exceptions.dart';
 import 'ffi/bindings.dart';
@@ -27,6 +28,7 @@ import 'permissions.dart';
 import 'portal/permission_flow.dart';
 import 'portal/permission_store.dart';
 import 'remote.dart';
+import 'runnability.dart';
 import 'remote_manager.dart';
 import 'storage_info.dart';
 import 'transaction.dart';
@@ -56,10 +58,100 @@ class FlatpakClient {
 
   // ── Read operations (libflatpak — no D-Bus, no polkit) ────────────────
 
-  /// List installed applications.
+  /// Installed applications this machine can actually run.
+  ///
+  /// Flatpak will install an app for any architecture — `flatpak install
+  /// --arch=aarch64` succeeds on an x86_64 host — and such an app is installed
+  /// but unrunnable. Listing it would offer the user something that fails at
+  /// launch, so it is filtered out by [archPolicy]. Pass [allArches] to get
+  /// everything regardless, for a UI that would rather label than hide.
   Future<List<FlatpakApplication>> listApplications({
     bool includeRuntimes = false,
-  }) => _installation.listApplications(includeRuntimes: includeRuntimes);
+    bool allArches = false,
+  }) async {
+    final apps = await _installation.listApplications(
+      includeRuntimes: includeRuntimes,
+    );
+    if (allArches) return apps;
+    return [
+      for (final app in apps)
+        if (app.ref.arch.isEmpty || appStream.canRunArch(app.ref.arch)) app,
+    ];
+  }
+
+  /// Whether an app built for [arch] can run here under [archPolicy].
+  ///
+  /// Cheap and synchronous, but only half the question — see [checkRunnable]
+  /// for the runtime side.
+  bool canRunArch(String arch) => appStream.canRunArch(arch);
+
+  /// Whether [appId] can actually be launched, and if not, what is missing.
+  ///
+  /// Checks both gates: the architecture this machine can execute, and whether
+  /// the runtime the app declares is installed for that architecture. The
+  /// second is the one that stops a foreign-arch launch in practice, and it is
+  /// not implied by the app being installed — `flatpak install --arch=aarch64`
+  /// leaves an app whose runtime was never fetched.
+  ///
+  /// Costs two native round trips, so it is not folded into
+  /// [listApplications]: that filters on architecture alone, which is pure and
+  /// free. Call this for the app a user is about to launch, or to label a row.
+  Future<AppRunnability> checkRunnable(
+    String appId, {
+    String arch = '',
+    String branch = '',
+  }) async {
+    final FlatpakApplication app;
+    try {
+      app = await _installation.getAppInfo(appId, arch: arch, branch: branch);
+    } on FlatpakNotFoundException {
+      return resolveRunnability(
+        appId: appId,
+        arch: arch,
+        installed: false,
+        archSupported: arch.isEmpty || canRunArch(arch),
+      );
+    }
+
+    final appArch = app.ref.arch;
+    if (appArch.isNotEmpty && !canRunArch(appArch)) {
+      // Terminal, so the runtime lookup below is skipped rather than asked and
+      // discarded — that is two native round trips saved per unrunnable app.
+      return resolveRunnability(
+        appId: appId,
+        arch: appArch,
+        installed: true,
+        archSupported: false,
+      );
+    }
+
+    String? runtimeRef;
+    try {
+      runtimeRef = await _installation.getRuntimeRef(
+        appId,
+        arch: arch,
+        branch: branch,
+      );
+    } on FlatpakException {
+      // Metadata declares no runtime: malformed rather than a reason to refuse.
+      runtimeRef = null;
+    }
+
+    return resolveRunnability(
+      appId: appId,
+      arch: appArch,
+      installed: true,
+      archSupported: true,
+      runtimeRef: runtimeRef,
+      runtimeInstalled:
+          runtimeRef != null &&
+          await _installation.isRefInstalled('runtime/$runtimeRef'),
+    );
+  }
+
+  /// Forgets cached emulation support; the next architecture question asks the
+  /// kernel again. See [FlatpakAppStream.refreshArchSupport].
+  void refreshArchSupport() => appStream.refreshArchSupport();
 
   /// List configured remotes.
   Future<List<FlatpakRemote>> listRemotes() => _installation.listRemotes();
@@ -118,10 +210,31 @@ class FlatpakClient {
 
   FlatpakAppStream? _appStream;
 
+  /// How far beyond the host architecture [appStream] looks for runnable apps.
+  ///
+  /// Defaults to [ArchPolicy.compatible]. Set [ArchPolicy.emulated] to also
+  /// surface architectures the kernel can execute through binfmt_misc — which
+  /// only ever adds architectures that also have a catalog on this machine, so
+  /// a host with qemu registered for everything does not start advertising
+  /// architectures nothing publishes apps for.
+  ///
+  /// Safe to change at any point: it is forwarded to an already-built
+  /// [appStream] rather than captured when that is created, so a late
+  /// assignment cannot silently fail to take effect.
+  ArchPolicy get archPolicy => _appStream?.archPolicy ?? _archPolicy;
+  set archPolicy(ArchPolicy policy) {
+    _archPolicy = policy;
+    _appStream?.archPolicy = policy;
+  }
+
+  ArchPolicy _archPolicy = ArchPolicy.compatible;
+
   /// AppStream metadata (icons, screenshots, releases) and installed-app
   /// icon resolution, backed by the appstream_dart engine.
-  FlatpakAppStream get appStream =>
-      _appStream ??= FlatpakAppStream.forName(_installation);
+  FlatpakAppStream get appStream => _appStream ??= FlatpakAppStream.forName(
+    _installation,
+    archPolicy: archPolicy,
+  );
 
   // ── Portal permissions (xdg-desktop-portal PermissionStore) ────────────
 

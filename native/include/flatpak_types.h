@@ -167,6 +167,11 @@ struct FpInstance {
     std::string arch;
     std::string branch;
     std::string commit;
+    // Full runtime ref the instance is running against, exactly as libflatpak
+    // reports it: "runtime/org.freedesktop.Platform/x86_64/25.08". Empty only
+    // if libflatpak has none. This is the one field that identifies a runtime
+    // instance, whose appId is empty because it has no application.
+    std::string runtime;
     int32_t pid{};       // outermost (bubblewrap) pid
     int32_t childPid{};  // application process pid
     bool isRunning{};
@@ -177,8 +182,8 @@ struct glz::meta<FpInstance> {
     static constexpr auto fields = std::make_tuple(
         glz::field("appId", &FpInstance::appId), glz::field("instanceId", &FpInstance::instanceId),
         glz::field("arch", &FpInstance::arch), glz::field("branch", &FpInstance::branch),
-        glz::field("commit", &FpInstance::commit), glz::field("pid", &FpInstance::pid),
-        glz::field("childPid", &FpInstance::childPid),
+        glz::field("commit", &FpInstance::commit), glz::field("runtime", &FpInstance::runtime),
+        glz::field("pid", &FpInstance::pid), glz::field("childPid", &FpInstance::childPid),
         glz::field("isRunning", &FpInstance::isRunning));
 };
 

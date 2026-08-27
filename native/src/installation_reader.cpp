@@ -15,6 +15,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -660,6 +661,7 @@ void InstallationReader::launch_impl(Dart_Port port, const char* app_id, const c
 
     FpInstance info;
     info.appId = safe_str(flatpak_instance_get_app(instance));
+    info.runtime = safe_str(flatpak_instance_get_runtime(instance));
     info.instanceId = safe_str(flatpak_instance_get_id(instance));
     info.arch = safe_str(flatpak_instance_get_arch(instance));
     info.branch = safe_str(flatpak_instance_get_branch(instance));
@@ -706,7 +708,17 @@ static bool read_start_time(pid_t pid, unsigned long long* out) {
         }
         field++;
         if (field == 22) {
-            return sscanf(p, "%llu", out) == 1;
+            // strtoull rather than sscanf: sscanf reports neither "no digits" nor overflow, and
+            // this value is what proves a pid was not recycled before stop() signals it. Silently
+            // accepting a garbage start time would let a stop signal the wrong process.
+            errno = 0;
+            char* end = nullptr;
+            const unsigned long long value = std::strtoull(p, &end, 10);
+            if (end == p || errno == ERANGE) {
+                return false;
+            }
+            *out = value;
+            return true;
         }
         while (*p && *p != ' ') {
             p++;
@@ -883,6 +895,7 @@ void InstallationReader::list_running(Dart_Port port) {
         auto* inst = static_cast<FlatpakInstance*>(instances->pdata[i]);
         FpInstance info;
         info.appId = safe_str(flatpak_instance_get_app(inst));
+        info.runtime = safe_str(flatpak_instance_get_runtime(inst));
         info.instanceId = safe_str(flatpak_instance_get_id(inst));
         info.arch = safe_str(flatpak_instance_get_arch(inst));
         info.branch = safe_str(flatpak_instance_get_branch(inst));

@@ -1,5 +1,64 @@
 ## 0.3.0
 
+- `FlatpakInstance` gains `runtime`: the full ref the instance runs against,
+  `runtime/org.freedesktop.Platform/x86_64/25.08`, exactly as
+  `flatpak_instance_get_runtime()` reports it.
+
+  This is what identifies an instance that has no application. `flatpak run` on
+  a runtime rather than an app — a `--command=sh` shell, `flatpak-builder
+  --run` — produces an instance whose application id is genuinely empty, on the
+  host as much as inside a sandbox, and it previously arrived anonymous.
+  `isRuntimeOnly` names that case and `toString()` falls back to the runtime
+  ref.
+
+  Both paths report it identically: libflatpak supplies it in-process, and the
+  sandboxed path now requests `runtime`/`runtime-branch` from `flatpak ps` and
+  reassembles the same ref. Verified against a live installation — the two
+  agree exactly, runtime instance included.
+
+
+- Filter AppStream catalogs to architectures this machine can actually run.
+  `ArchPolicy` selects how far to look: `native` (the host architecture alone),
+  `compatible` (the default — the host plus what it runs natively, mirroring
+  `flatpak_get_supported_arches()`), or `emulated`.
+
+  Emulation is detected, not configured. `kernelExecutableArches()` reads
+  binfmt_misc for registrations that are enabled, carry the `F` flag (without
+  which the interpreter is unreachable inside the sandbox) and whose
+  interpreter still exists. That alone is never enough to surface an
+  architecture: a machine with `qemu-user-static` registers ~31 of them while a
+  remote may publish apps for one, so `usableArches()` reports only
+  architectures that are both runnable *and* have a downloaded catalog. The
+  host architecture always outranks an emulated one.
+
+  The policy applies to installed apps too. Flatpak installs an app for any
+  architecture on request — `flatpak install --arch=aarch64` succeeds on an
+  x86_64 host — and the result is installed but unrunnable, so
+  `listApplications()` now hides it. Pass `allArches: true` for a UI that would
+  rather label than hide, and use `canRunArch()` to do the labelling.
+
+  Emulation support is cached, because a list view asks per row and a scan
+  costs about a millisecond on a machine with `qemu-user-static` installed.
+  There is no automatic invalidation: binfmt_misc does not bump its directory
+  mtime when a registration is added, and disabling a handler in place changes
+  neither that nor the entry count — which is exactly the case that matters. So
+  the cache has a bounded staleness window and an explicit
+  `refreshArchSupport()` for callers that know an emulator was installed,
+  removed or toggled.
+
+  `checkRunnable()` answers the whole question rather than just the
+  architecture half. Architecture support is necessary but not sufficient: a
+  foreign-arch launch is stopped by the missing runtime for that architecture,
+  before emulation is ever reached, and installing an app does not bring one
+  along. It reports which of the two is missing, so a caller can tell a
+  terminal problem from one `ensureRuntime()` fixes. It costs two native calls
+  and is deliberately not folded into `listApplications()`, which filters on
+  architecture alone — pure and free.
+
+  This also fixes catalog selection picking the alphabetically first
+  architecture directory when the host's own was absent, which could serve
+  x86_64 apps on an aarch64 machine.
+
 - Add AppStream catalog support. `FlatpakClient.appStream` locates a remote's
   downloaded catalog, refreshes it through
   `flatpak_installation_update_appstream_sync()`, and resolves full component

@@ -12,18 +12,66 @@ import 'package:path/path.dart' as p;
 import '../application.dart';
 import '../exceptions.dart';
 import '../installation.dart';
+import '../arch.dart';
 import '../installation_paths.dart';
 import 'catalog_cache.dart';
 import 'installed_icons.dart';
 
 class FlatpakAppStream {
-  FlatpakAppStream(this._installation, this.installationPath);
+  FlatpakAppStream(
+    this._installation,
+    this.installationPath, {
+    this.archPolicy = ArchPolicy.compatible,
+    Set<String>? executableArches,
+    String? hostArch,
+    ArchSupportCache? archSupport,
+  }) : _executableArches = executableArches,
+       _hostArch = hostArch,
+       _archSupport = archSupport ?? ArchSupportCache();
 
   /// Build for a named installation (`user` / `system` / absolute path).
-  factory FlatpakAppStream.forName(FlatpakInstallation installation) =>
-      FlatpakAppStream(installation, installationPathFor(installation.name));
+  factory FlatpakAppStream.forName(
+    FlatpakInstallation installation, {
+    ArchPolicy archPolicy = ArchPolicy.compatible,
+    Set<String>? executableArches,
+    String? hostArch,
+    ArchSupportCache? archSupport,
+  }) => FlatpakAppStream(
+    installation,
+    installationPathFor(installation.name),
+    archPolicy: archPolicy,
+    executableArches: executableArches,
+    hostArch: hostArch,
+    archSupport: archSupport,
+  );
+
+  /// Overrides binfmt_misc detection. Null means "ask the kernel", which is
+  /// what production does; a test supplies a set so the emulated policy does
+  /// not depend on whether the machine running the tests has qemu installed.
+  final Set<String>? _executableArches;
+
+  /// Caches binfmt_misc scans across the many per-app queries a list view
+  /// makes. Drop it with [refreshArchSupport] when emulation may have changed.
+  final ArchSupportCache _archSupport;
+
+  /// Overrides the detected host architecture. Null means "ask uname". Lets a
+  /// test check how an aarch64 machine behaves without being one — the
+  /// alternative is trusting that CI happens to run on both, which is how the
+  /// architecture assumptions in this file's own tests went unnoticed.
+  final String? _hostArch;
 
   final FlatpakInstallation _installation;
+
+  /// How far beyond the host architecture to look for runnable apps.
+  ///
+  /// Defaults to [ArchPolicy.compatible] — the host architecture and the ones
+  /// it runs natively. [ArchPolicy.emulated] additionally surfaces
+  /// architectures the kernel can execute through binfmt_misc *and* that have a
+  /// catalog on this machine; a registration with nothing to run never appears.
+  ///
+  /// Mutable, and read on each query rather than captured at construction, so
+  /// changing it takes effect without rebuilding and losing the open catalogs.
+  ArchPolicy archPolicy;
 
   /// Base directory of the flatpak installation whose `appstream/` subtree
   /// holds the downloaded per-remote catalogs.
@@ -59,14 +107,20 @@ class FlatpakAppStream {
   /// so looking only under `active/` reports a downloaded catalog as missing.
   ///
   /// Prefers the uncompressed `appstream.xml`, falling back to `appstream.xml.gz`.
-  /// When [arch] is empty the first architecture directory present for the
-  /// remote is used. Returns `null` when no catalog has been downloaded.
+  /// When [arch] is empty the most preferred architecture [archPolicy] allows
+  /// *and* that has a catalog downloaded is used. Returns `null` when no
+  /// catalog this machine could run has been downloaded.
   String? catalogPath(String remote, {String arch = ''}) {
-    final remoteDir = p.join(installationPath, 'appstream', remote);
-    final chosenArch = arch.isNotEmpty ? arch : _firstArch(remoteDir);
-    if (chosenArch == null) return null;
+    if (arch.isNotEmpty) return _catalogFileFor(remote, arch);
+    for (final candidate in usableArches(remote)) {
+      final path = _catalogFileFor(remote, candidate);
+      if (path != null) return path;
+    }
+    return null;
+  }
 
-    final archDir = p.join(remoteDir, chosenArch);
+  String? _catalogFileFor(String remote, String arch) {
+    final archDir = p.join(installationPath, 'appstream', remote, arch);
     for (final dir in [p.join(archDir, 'active'), archDir]) {
       for (final name in const ['appstream.xml', 'appstream.xml.gz']) {
         final f = p.join(dir, name);
@@ -76,39 +130,60 @@ class FlatpakAppStream {
     return null;
   }
 
-  static String? _firstArch(String remoteDir) {
-    final dir = Directory(remoteDir);
-    if (!dir.existsSync()) return null;
-    final arches =
-        dir
-            .listSync()
-            .whereType<Directory>()
-            .map((d) => p.basename(d.path))
-            .toList()
-          ..sort();
-    if (arches.isEmpty) return null;
-    // Prefer the host architecture when present.
-    final host = _hostFlatpakArch;
-    if (host != null && arches.contains(host)) return host;
-    return arches.first;
+  /// Architectures [remote] has a catalog for that this machine can run,
+  /// most preferred first.
+  ///
+  /// This is the intersection that makes emulation detection trustworthy: the
+  /// kernel here advertises 31 binfmt_misc architectures, while Flathub
+  /// publishes apps for two. Only architectures on both sides of that
+  /// intersection are ever offered.
+  ///
+  /// An architecture directory that [archPolicy] does not allow is skipped
+  /// even when a catalog is sitting in it — a downloaded x86_64 catalog must
+  /// not turn into x86_64 apps on an aarch64 machine.
+  List<String> usableArches(String remote) {
+    final present = downloadedArches(remote);
+    final candidates = candidateArches(
+      archPolicy,
+      hostArch: _hostArch,
+      executableArches: _executableArches ?? _archSupport.executableArches(),
+    );
+    return [
+      for (final a in candidates)
+        if (present.contains(a)) a,
+    ];
   }
 
-  /// Host arch in flatpak's naming. Resolved once — it cannot change within a
-  /// process, and `uname` is a blocking subprocess spawn.
-  static final String? _hostFlatpakArch = () {
+  /// Whether this machine can run [arch] under [archPolicy].
+  ///
+  /// Unlike [usableArches] this does not require a downloaded catalog: an
+  /// already-installed app needs no catalog to launch.
+  bool canRunArch(String arch) => candidateArches(
+    archPolicy,
+    hostArch: _hostArch,
+    executableArches: _executableArches ?? _archSupport.executableArches(),
+  ).contains(arch);
+
+  /// Forgets what the kernel said about emulation, so the next query asks
+  /// again. Call after installing or removing an emulator, or when a user has
+  /// toggled one — nothing about binfmt_misc can be watched cheaply enough to
+  /// notice on its own.
+  void refreshArchSupport() => _archSupport.invalidate();
+
+  /// Architecture directories present under [remote], whatever they are.
+  Set<String> downloadedArches(String remote) {
+    final dir = Directory(p.join(installationPath, 'appstream', remote));
+    if (!dir.existsSync()) return const {};
     try {
-      final m = Process.runSync('uname', ['-m']).stdout.toString().trim();
-      return switch (m) {
-        'x86_64' => 'x86_64',
-        'aarch64' || 'arm64' => 'aarch64',
-        'i686' || 'i386' => 'i386',
-        'armv7l' => 'arm',
-        _ => m.isEmpty ? null : m,
-      };
+      return dir
+          .listSync()
+          .whereType<Directory>()
+          .map((d) => p.basename(d.path))
+          .toSet();
     } catch (_) {
-      return null;
+      return const {};
     }
-  }();
+  }
 
   // ── Catalog refresh ──────────────────────────────────────────────────────
 

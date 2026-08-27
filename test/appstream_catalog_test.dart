@@ -4,11 +4,25 @@ library;
 import 'dart:io';
 
 import 'package:flatpak_dart/src/appstream/catalog.dart';
+import 'package:flatpak_dart/src/arch.dart';
 import 'package:flatpak_dart/src/installation.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  // The tests run on whatever machine CI gives them, so they assert against
+  // the host's own architecture rather than hard-coding one.
+  final hostArch = hostFlatpakArch!;
+
+  // An architecture this machine cannot run natively, whatever it is. Tests
+  // that mean "foreign" must derive it — hard-coding one silently turns into
+  // "the host architecture" on a runner of that architecture, which is the
+  // exact mistake this feature exists to prevent.
+  final foreignArch = hostArch == 'aarch64' ? 'x86_64' : 'aarch64';
+
+  // The host's secondary native architecture: i386 on x86_64, arm on aarch64.
+  final secondaryArch = compatibleArches(hostArch).skip(1).firstOrNull;
+
   group('FlatpakAppStream.catalogPath', () {
     late Directory base;
     late FlatpakAppStream appStream;
@@ -47,7 +61,7 @@ void main() {
     });
 
     test('finds a flat-layout catalog with no arch given', () {
-      writeFlatCatalog('fedora', 'x86_64', 'appstream.xml.gz');
+      writeFlatCatalog('fedora', hostArch, 'appstream.xml.gz');
       expect(appStream.catalogPath('fedora'), isNotNull);
     });
 
@@ -79,38 +93,214 @@ void main() {
       expect(got, endsWith('active/appstream.xml'));
     });
 
-    test('auto-selects an arch when none is given', () {
-      writeCatalog('flathub', 'aarch64', 'appstream.xml');
-      final got = appStream.catalogPath('flathub');
-      expect(got, isNotNull);
-      expect(got, contains('aarch64'));
+    test('auto-selects the host arch when none is given', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      expect(appStream.catalogPath('flathub'), contains('/$hostArch/'));
     });
 
-    // With several arches downloaded, the host's own is the one that can
-    // actually be installed — and it is not the alphabetically first.
+    // With several downloaded, the host's own wins — and it is not the
+    // alphabetically first.
     test('prefers the host arch over the first sorted one', () {
-      for (final arch in const ['aarch64', 'i386', 'x86_64']) {
+      for (final arch in {'aarch64', 'i386', 'x86_64', hostArch}) {
         writeCatalog('flathub', arch, 'appstream.xml');
       }
-      final host = Process.runSync('uname', ['-m']).stdout.toString().trim();
-      final expected =
-          const {'arm64': 'aarch64', 'armv7l': 'arm', 'i686': 'i386'}[host] ??
-          host;
-
-      final got = appStream.catalogPath('flathub');
-      expect(got, isNotNull);
-      if (const ['aarch64', 'i386', 'x86_64'].contains(expected)) {
-        expect(got, contains('/$expected/'));
-      } else {
-        // Host arch not among the downloaded ones: fall back to first sorted.
-        expect(got, contains('/aarch64/'));
-      }
+      expect(appStream.catalogPath('flathub'), contains('/$hostArch/'));
     });
 
-    test('falls back to the first sorted arch when the host has none', () {
+    // The whole point of the filter. A catalog for an architecture this
+    // machine cannot execute is not a fallback — offering it would list apps
+    // that cannot be installed, let alone run.
+    test('a foreign-arch catalog is not offered', () {
       writeCatalog('flathub', 'mips64el', 'appstream.xml');
-      writeCatalog('flathub', 'riscv64', 'appstream.xml');
-      expect(appStream.catalogPath('flathub'), contains('/mips64el/'));
+      writeCatalog('flathub', 'sparc64', 'appstream.xml');
+      expect(appStream.catalogPath('flathub'), isNull);
+    });
+
+    test('native policy refuses even a compatible arch', () {
+      // i386 on x86_64, arm on aarch64: an architecture the host runs
+      // natively but that is not the host's own.
+      if (secondaryArch == null) return;
+      writeCatalog('flathub', secondaryArch, 'appstream.xml');
+      final native = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.native,
+      );
+      expect(appStream.catalogPath('flathub'), contains('/$secondaryArch/'));
+      expect(native.catalogPath('flathub'), isNull);
+    });
+
+    // The positive case of the whole feature: an architecture is offered only
+    // when the kernel can execute it *and* a catalog for it exists. Detection
+    // is injected so this does not depend on the test machine having qemu.
+    test(
+      'emulated offers a foreign arch that is both runnable and present',
+      () {
+        writeCatalog('flathub', 'aarch64', 'appstream.xml');
+        final emulated = FlatpakAppStream(
+          FlatpakInstallation('user'),
+          base.path,
+          archPolicy: ArchPolicy.emulated,
+          executableArches: const {'aarch64'},
+        );
+        expect(emulated.usableArches('flathub'), ['aarch64']);
+        expect(emulated.catalogPath('flathub'), contains('/aarch64/'));
+      },
+    );
+
+    test('emulated still refuses an arch the kernel cannot execute', () {
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
+      final noQemu = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.emulated,
+        executableArches: const {},
+      );
+      expect(noQemu.usableArches('flathub'), isEmpty);
+      expect(noQemu.catalogPath('flathub'), isNull);
+    });
+
+    // Native always wins: an emulated build must never be chosen over one the
+    // machine runs directly.
+    test('a native catalog outranks an emulated one', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
+      final emulated = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: ArchPolicy.emulated,
+        executableArches: {foreignArch},
+      );
+      expect(emulated.usableArches('flathub').first, hostArch);
+      expect(emulated.catalogPath('flathub'), contains('/$hostArch/'));
+    });
+
+    // Proven for both architectures on whatever machine runs the tests, rather
+    // than hoping CI covers both. Two of these assertions previously passed
+    // only because the developer machine was x86_64.
+    for (final host in const ['x86_64', 'aarch64']) {
+      final foreign = host == 'aarch64' ? 'x86_64' : 'aarch64';
+      final secondary = compatibleArches(host)[1];
+
+      FlatpakAppStream asHost(
+        ArchPolicy policy, {
+        Set<String> executable = const {},
+      }) => FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        archPolicy: policy,
+        hostArch: host,
+        executableArches: executable,
+      );
+
+      group('as a $host host', () {
+        test('compatible takes the host arch', () {
+          writeCatalog('flathub', host, 'appstream.xml');
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(asHost(ArchPolicy.compatible).usableArches('flathub'), [host]);
+        });
+
+        test('compatible also takes the secondary native arch', () {
+          writeCatalog('flathub', secondary, 'appstream.xml');
+          expect(asHost(ArchPolicy.compatible).usableArches('flathub'), [
+            secondary,
+          ]);
+        });
+
+        test('native refuses the secondary arch', () {
+          writeCatalog('flathub', secondary, 'appstream.xml');
+          expect(asHost(ArchPolicy.native).usableArches('flathub'), isEmpty);
+        });
+
+        test('compatible refuses the foreign arch', () {
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(
+            asHost(ArchPolicy.compatible).usableArches('flathub'),
+            isEmpty,
+          );
+        });
+
+        test('emulated takes the foreign arch only when executable', () {
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(asHost(ArchPolicy.emulated).usableArches('flathub'), isEmpty);
+          expect(
+            asHost(
+              ArchPolicy.emulated,
+              executable: {foreign},
+            ).usableArches('flathub'),
+            [foreign],
+          );
+        });
+
+        test('the host outranks an executable foreign arch', () {
+          writeCatalog('flathub', host, 'appstream.xml');
+          writeCatalog('flathub', foreign, 'appstream.xml');
+          expect(
+            asHost(
+              ArchPolicy.emulated,
+              executable: {foreign},
+            ).usableArches('flathub').first,
+            host,
+          );
+        });
+      });
+    }
+
+    group('canRunArch', () {
+      // Unlike usableArches, this needs no catalog: an installed app launches
+      // from its own deploy directory.
+      test('the host arch is runnable with nothing downloaded', () {
+        expect(appStream.canRunArch(hostArch), isTrue);
+      });
+
+      test('a foreign arch is not runnable under compatible', () {
+        expect(appStream.canRunArch(foreignArch), isFalse);
+      });
+
+      test('an emulated foreign arch is runnable without a catalog', () {
+        final emulated = FlatpakAppStream(
+          FlatpakInstallation('user'),
+          base.path,
+          archPolicy: ArchPolicy.emulated,
+          executableArches: {foreignArch},
+        );
+        expect(emulated.canRunArch(foreignArch), isTrue);
+        expect(emulated.usableArches('flathub'), isEmpty, reason: 'no catalog');
+      });
+
+      test('an arch nothing can run is never runnable', () {
+        expect(appStream.canRunArch('sparc64'), isFalse);
+      });
+    });
+
+    test('archPolicy can be changed after construction', () {
+      writeCatalog('flathub', foreignArch, 'appstream.xml');
+      final a = FlatpakAppStream(
+        FlatpakInstallation('user'),
+        base.path,
+        executableArches: {foreignArch},
+      );
+      expect(a.usableArches('flathub'), isEmpty);
+      a.archPolicy = ArchPolicy.emulated;
+      expect(a.usableArches('flathub'), [foreignArch]);
+    });
+
+    test('refreshArchSupport re-reads emulation support', () {
+      // Injected detection wins over the cache, so this only has to prove the
+      // call is harmless and the object keeps working.
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      appStream.refreshArchSupport();
+      expect(appStream.usableArches('flathub'), [hostArch]);
+    });
+
+    test('usableArches reports only what is both allowed and downloaded', () {
+      writeCatalog('flathub', hostArch, 'appstream.xml');
+      writeCatalog('flathub', 's390x', 'appstream.xml');
+      expect(appStream.usableArches('flathub'), [hostArch]);
+      expect(
+        appStream.downloadedArches('flathub'),
+        containsAll([hostArch, 's390x']),
+      );
     });
 
     test('an explicit arch with no catalog is null, not another arch', () {

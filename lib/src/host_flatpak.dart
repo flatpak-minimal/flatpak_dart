@@ -28,7 +28,12 @@ typedef ProcessRunner =
 
 /// Column order requested from `flatpak ps`. [parseHostPsOutput] is positional,
 /// so the two must stay in step.
-const hostPsColumns = 'application,instance,arch,branch,commit,pid,child-pid';
+///
+/// `runtime`/`runtime-branch` are requested so this path can report the same
+/// full runtime ref libflatpak gives the in-process path. flatpak splits them
+/// into a bare id and a branch, so the ref is reassembled in the parse.
+const hostPsColumns =
+    'application,instance,arch,branch,commit,runtime,runtime-branch,pid,child-pid';
 
 /// Drives the host's `flatpak` CLI through `flatpak-spawn --host`.
 class HostFlatpak {
@@ -246,7 +251,7 @@ class HostFlatpak {
 /// flatpak whose column set differs — are skipped rather than mis-bound to the
 /// wrong fields.
 List<FlatpakInstance> parseHostPsOutput(String stdout) {
-  const columnCount = 7;
+  const columnCount = 9;
   final instances = <FlatpakInstance>[];
 
   for (final line in const LineSplitter().convert(stdout)) {
@@ -258,8 +263,8 @@ List<FlatpakInstance> parseHostPsOutput(String stdout) {
         ? [for (final c in row.split('\t')) c.trim()]
         : row.trim().split(RegExp(r'\s+'));
     if (cols.length != columnCount) continue;
-    final pid = int.tryParse(cols[5]);
-    final childPid = int.tryParse(cols[6]);
+    final pid = int.tryParse(cols[7]);
+    final childPid = int.tryParse(cols[8]);
     if (pid == null || childPid == null) continue;
     instances.add(
       FlatpakInstance(
@@ -268,6 +273,7 @@ List<FlatpakInstance> parseHostPsOutput(String stdout) {
         arch: cols[2],
         branch: cols[3],
         commit: cols[4],
+        runtime: _runtimeRef(cols[5], cols[2], cols[6]),
         pid: pid,
         childPid: childPid,
         isRunning: true,
@@ -275,4 +281,13 @@ List<FlatpakInstance> parseHostPsOutput(String stdout) {
     );
   }
   return instances;
+}
+
+/// Reassembles the full runtime ref `flatpak ps` splits across columns, in the
+/// shape `flatpak_instance_get_runtime()` hands the in-process path:
+/// `runtime/org.freedesktop.Platform/x86_64/25.08`. Empty when flatpak names
+/// no runtime, rather than a half-built `runtime///` that only looks like one.
+String _runtimeRef(String id, String arch, String branch) {
+  if (id.isEmpty) return '';
+  return 'runtime/$id/$arch/$branch';
 }

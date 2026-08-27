@@ -20,8 +20,9 @@ void main(List<String> args) async {
     final clearAmbientFlags = clearDefine == true || clearDefine == 'true';
 
     final nativeDir = input.packageRoot.resolve('native/').toFilePath();
-    final buildDir =
-        input.outputDirectory.resolve('native_build/').toFilePath();
+    final buildDir = input.outputDirectory
+        .resolve('native_build/')
+        .toFilePath();
 
     await Directory(buildDir).create(recursive: true);
 

@@ -158,6 +158,7 @@ abstract final class GlazeCodec {
       arch: r.readString(),
       branch: r.readString(),
       commit: r.readString(),
+      runtime: r.readString(),
       pid: r.readInt32(),
       childPid: r.readInt32(),
       isRunning: r.readBool(),

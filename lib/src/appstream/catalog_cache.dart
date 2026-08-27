@@ -56,21 +56,43 @@ String slugForCache(String value) =>
 /// Sidecar recording which source a database at [dbPath] was built from.
 File catalogStampFile(String dbPath) => File('$dbPath.source');
 
-/// Records the source mtime and path the database at [dbPath] was built from.
+/// Records the source identity the database at [dbPath] was built from.
 ///
 /// The mtime is stored rather than compared: a catalog that moves *backwards*
 /// in time has to invalidate too. Flatpak swaps the `active` symlink between
 /// deploy directories, so a newly activated catalog's mtime is not guaranteed
 /// to be newer than the database built from the one it replaced.
+///
+/// The path is stored **resolved**, and that is what makes the mtime
+/// survivable. Flatpak's `appstream2` deploy checks the catalog out of OSTree,
+/// which normalises mtimes to the epoch: on two machines the uncompressed
+/// `appstream.xml` under `active/` was dated 1970 while only the sibling
+/// `.gz` carried a real time. With an unresolved path both halves of the
+/// identity would then be invariant — same 1970, same `.../active/...` string
+/// — and the catalog would read as current forever, however often it was
+/// refreshed. The resolved path carries the OSTree commit, which changes
+/// exactly when the deploy does.
 void stampCatalogSource(String dbPath, String sourcePath) {
   try {
     final source = File(sourcePath);
     final stamp =
         '${source.lastModifiedSync().toUtc().toIso8601String()}\n'
-        '${source.absolute.path}\n';
+        '${_sourceIdentity(source)}\n';
     catalogStampFile(dbPath).writeAsStringSync(stamp, flush: true);
   } catch (_) {
     // A missing stamp only costs a rebuild.
+  }
+}
+
+/// Path identifying the file a catalog was built from, with symlinks resolved
+/// so an `active` symlink repointed at a new deploy reads as a different
+/// source. Falls back to the unresolved path when resolution fails, which only
+/// costs a rebuild.
+String _sourceIdentity(File source) {
+  try {
+    return source.resolveSymbolicLinksSync();
+  } catch (_) {
+    return source.absolute.path;
   }
 }
 
@@ -89,7 +111,7 @@ bool catalogNeedsRebuild(String dbPath, String sourcePath) {
     if (lines.length < 2) return true;
     final source = File(sourcePath);
     return lines[0] != source.lastModifiedSync().toUtc().toIso8601String() ||
-        lines[1] != source.absolute.path;
+        lines[1] != _sourceIdentity(source);
   } catch (_) {
     return true;
   }
