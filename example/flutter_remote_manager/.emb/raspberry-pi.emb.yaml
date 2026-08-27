@@ -1,6 +1,6 @@
 # flutter_remote_manager on a Raspberry Pi — the app layer.
 #
-# `emb cross <ivi-homescreen> --target rpi5-trixie --app <this dir>` builds the
+# `emb cross <ivi-homescreen> --target <board> --app <this dir>` builds the
 # embedder from the project and this app from here. The project owns the board
 # profile all of its apps share; this file states only what *this* app needs on
 # top, so nothing else building that board carries it.
@@ -9,6 +9,11 @@
 # native/ against libflatpak via pkg-config, so the target sysroot must have
 # libflatpak-dev — which almost no other app wants. `dev_packages` accumulate
 # across the chain rather than replace, so this adds to the board's base stack.
+#
+# Covers the trixie boards: Pi 5, Pi 4 and Pi Zero 2 W. Only the Pi 5 has been
+# run on hardware; the other two share its image and package set and differ
+# only in cpu tuning. The bookworm boards are deliberately absent — they take a
+# different image, so they would need their own snapshot pin.
 #
 #   emb cross /path/to/ivi-homescreen --target rpi5-trixie --build \
 #       --backend drm-kms-egl --app example/flutter_remote_manager \
@@ -20,7 +25,9 @@ supported_host_types: [fedora, ubuntu]
 
 cross:
   targets:
-    rpi5-trixie:
+    # The three Pi trixie boards differ only in cpu tuning and share one PiOS
+    # image, so one layer serves all of them; `emb cross --target` picks which.
+    rpi5-trixie: &pi_trixie
       sysroot:
         # Pin apt resolution to a snapshot taken just after the sysroot image
         # was built. Debian point releases drop superseded versions from the
@@ -36,3 +43,10 @@ cross:
           # project against sqlite3, so its headers have to be here too — a
           # hook's needs are the app's needs, however deep in the tree it sits.
           - libsqlite3-dev
+
+    # Cortex-A72.
+    rpi4-trixie: *pi_trixie
+
+    # Cortex-A53. The 2 W is the arm64 Zero; the original Zero is armv6 and no
+    # target here builds for it.
+    rpi-zero-2w-trixie: *pi_trixie
