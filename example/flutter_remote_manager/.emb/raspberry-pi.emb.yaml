@@ -24,6 +24,29 @@ supported_archs: [arm64]
 supported_host_types: [fedora, ubuntu]
 
 cross:
+  # Runtime dependencies of this app's own code assets.
+  #
+  # emb derives a package's dependencies from the executable's DT_NEEDED, which
+  # covers the embedder but not the libraries staged beside it. These are what
+  # *this* app's code assets link and would otherwise go unstated, leaving a
+  # .deb that installs cleanly and then dies at first call with
+  # "libflatpak.so.0: cannot open shared object file".
+  #
+  # Note that installing `flatpak` does not bring libflatpak0 with it: the CLI
+  # does not link the library, so a device can have a working flatpak and still
+  # be missing what an embedder needs.
+  package:
+    depends:
+      # libflatpak_nc.so, this package's bridge. libostree and glib come with
+      # libflatpak0 anyway, but the bridge links them directly and a package
+      # should name what its binaries link.
+      - libflatpak0
+      - libostree-1-1
+      - libglib2.0-0t64
+      # appstream_dart's code asset links the system sqlite, which is not the
+      # bundled libsqlite3.so code asset — two different consumers.
+      - libsqlite3-0
+
   targets:
     # The three Pi trixie boards differ only in cpu tuning and share one PiOS
     # image, so one layer serves all of them; `emb cross --target` picks which.
