@@ -113,6 +113,14 @@
 - New dependencies: `appstream_dart` and `dbus`. `appstream_dart` builds
   against SQLite, so `sqlite-devel` / `libsqlite3-dev` joins the
   prerequisites.
+- Require `appstream_dart` ^0.4.2, which moves the build hook onto `hooks` 2.x
+  and `code_assets` 1.2.x. Its public Dart API is unchanged, so nothing here
+  changed with it; the bump carries appstream_dart's fixes for undefined
+  behaviour when parsing untrusted catalog attributes, and for a library
+  search chain that could load a `libappstream.so` from a CWD-relative
+  directory. The `hooks` and `code_assets` ranges here stay wide, so a Flutter
+  SDK pinning `meta` 1.18.0 still resolves to the 1.x pairing — verified by
+  building and running the Flutter example against it.
 
 ## 0.2.0
 
