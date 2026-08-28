@@ -19,7 +19,7 @@ dependencies:
   # compatible across both API generations. The ranges stay wide so that a
   # Flutter SDK pinning meta 1.18.0 can still resolve: hooks 2.x requires
   # meta ^1.19.0, which such an SDK excludes.
-  appstream_dart: ^0.3.0
+  appstream_dart: ^0.4.2
   code_assets: ">=0.19.7 <2.0.0"
   dbus: ^0.7.11
   ffi: ^2.1.0
