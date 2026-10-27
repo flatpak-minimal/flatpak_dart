@@ -42,13 +42,46 @@ class HostFlatpak {
     ProcessRunner? run,
     Duration launchSettle = const Duration(milliseconds: 1500),
     Duration launchPollInterval = const Duration(milliseconds: 100),
+    Map<String, String>? environment,
   }) : _start = start ?? Process.start,
        _run = run ?? Process.run,
        _launchSettle = launchSettle,
-       _launchPollInterval = launchPollInterval;
+       _launchPollInterval = launchPollInterval,
+       _environment = environment ?? Platform.environment;
 
   final ProcessStarter _start;
   final ProcessRunner _run;
+
+  final Map<String, String> _environment;
+
+  /// What an app launched on the host inherits from this process, so it opens
+  /// where this app is: `flatpak-spawn --host` runs the command in the session
+  /// helper's environment, not ours, and without these the app lands on the
+  /// session's own display rather than the compositor this app is shown on.
+  static const forwardedEnvironment = <String>[
+    'WAYLAND_DISPLAY',
+    // Chromium/Electron choose Wayland over X11 only in a wayland session.
+    'XDG_SESSION_TYPE',
+    // From the compositor, so the new window is activated.
+    'XDG_ACTIVATION_TOKEN',
+  ];
+
+  /// `flatpak-spawn --env=` options for [forwardedEnvironment]. With a Wayland
+  /// display forwarded the session's X11 display is cleared too, so an app
+  /// that would fall back to X11 cannot open on the session's desktop either.
+  /// A sandbox keeps the host's name for a `wayland-*` socket, so the name
+  /// read here is the one the host side needs.
+  List<String> _forwardedEnv() {
+    final args = <String>[
+      for (final name in forwardedEnvironment)
+        if (_environment[name] case final String value when value.isNotEmpty)
+          '--env=$name=$value',
+    ];
+    if (args.any((a) => a.startsWith('--env=WAYLAND_DISPLAY='))) {
+      args.add('--env=DISPLAY=');
+    }
+    return args;
+  }
 
   /// Upper bound on how long a host-delegated `flatpak run` is given to either
   /// fail or register an instance. Only a launch that does neither — no error,
@@ -89,7 +122,7 @@ class HostFlatpak {
     String branch = '',
     String commit = '',
   }) async {
-    final args = <String>['--host', 'flatpak', 'run'];
+    final args = <String>['--host', ..._forwardedEnv(), 'flatpak', 'run'];
     if (arch.isNotEmpty) args.add('--arch=$arch');
     if (branch.isNotEmpty) args.add('--branch=$branch');
     if (commit.isNotEmpty) args.add('--commit=$commit');

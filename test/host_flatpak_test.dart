@@ -74,11 +74,13 @@ HostFlatpak _host(
   _Spawns spawns, {
   Duration settle = const Duration(milliseconds: 20),
   Duration poll = const Duration(milliseconds: 2),
+  Map<String, String> environment = const {},
 }) => HostFlatpak(
   start: spawns.start,
   run: spawns.run,
   launchSettle: settle,
   launchPollInterval: poll,
+  environment: environment,
 );
 
 void main() {
@@ -283,6 +285,43 @@ void main() {
           'org.x.Y',
         ]),
       );
+    });
+
+    // flatpak-spawn --host runs `flatpak run` in the session helper's
+    // environment: without these the app opens on the session's display, not
+    // the compositor the launching app is shown on.
+    test('forwards the display it was launched on', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-ihs-0',
+          'XDG_SESSION_TYPE': 'wayland',
+          'XDG_ACTIVATION_TOKEN': 'tok',
+          'HOME': '/home/u',
+        },
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=WAYLAND_DISPLAY=wayland-ihs-0',
+        '--env=XDG_SESSION_TYPE=wayland',
+        '--env=XDG_ACTIVATION_TOKEN=tok',
+        '--env=DISPLAY=',
+      ]);
+    });
+
+    test('forwards nothing unset or empty, and keeps X11 then', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {'XDG_SESSION_TYPE': 'x11', 'WAYLAND_DISPLAY': ''},
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=XDG_SESSION_TYPE=x11',
+      ]);
     });
 
     test('omits flags that were not given', () async {
