@@ -306,8 +306,25 @@ void main() {
         '--host',
         '--env=WAYLAND_DISPLAY=wayland-ihs-0',
         '--env=XDG_SESSION_TYPE=wayland',
-        '--env=XDG_ACTIVATION_TOKEN=tok',
         '--env=DISPLAY=',
+      ]);
+    });
+
+    // flatpak binds any host socket it cannot keep the name of as wayland-0,
+    // so the host's real display is unknown and none is forwarded.
+    test('does not forward the sandbox default wayland-0', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-0',
+          'XDG_SESSION_TYPE': 'wayland',
+        },
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=XDG_SESSION_TYPE=wayland',
       ]);
     });
 

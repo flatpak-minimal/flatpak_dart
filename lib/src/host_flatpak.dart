@@ -62,21 +62,26 @@ class HostFlatpak {
     'WAYLAND_DISPLAY',
     // Chromium/Electron choose Wayland over X11 only in a wayland session.
     'XDG_SESSION_TYPE',
-    // From the compositor, so the new window is activated.
-    'XDG_ACTIVATION_TOKEN',
   ];
+
+  /// The name flatpak gives the Wayland socket inside a sandbox whenever it
+  /// cannot keep the host's: a host name that does not start with `wayland-`
+  static const _sandboxDefaultWaylandDisplay = 'wayland-0';
 
   /// `flatpak-spawn --env=` options for [forwardedEnvironment]. With a Wayland
   /// display forwarded the session's X11 display is cleared too, so an app
   /// that would fall back to X11 cannot open on the session's desktop either.
-  /// A sandbox keeps the host's name for a `wayland-*` socket, so the name
-  /// read here is the one the host side needs.
+  /// An X11-only app then fails to start rather than opening there.
   List<String> _forwardedEnv() {
-    final args = <String>[
-      for (final name in forwardedEnvironment)
-        if (_environment[name] case final String value when value.isNotEmpty)
-          '--env=$name=$value',
-    ];
+    final args = <String>[];
+    for (final name in forwardedEnvironment) {
+      final value = _environment[name];
+      if (value == null || value.isEmpty) continue;
+      if (name == 'WAYLAND_DISPLAY' && value == _sandboxDefaultWaylandDisplay) {
+        continue;
+      }
+      args.add('--env=$name=$value');
+    }
     if (args.any((a) => a.startsWith('--env=WAYLAND_DISPLAY='))) {
       args.add('--env=DISPLAY=');
     }
