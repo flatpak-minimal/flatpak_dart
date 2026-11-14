@@ -243,6 +243,16 @@ class Reader {
         return p + n <= end;
     }
 
+    // Lengths are 64-bit on the wire so the format does not depend on the
+    // host, which means a 32-bit reader has to range check before it narrows.
+    // Checking in the pointer arithmetic does not do it: p + n converts n to
+    // ptrdiff_t first, so a length over 2^32 truncates and the check passes.
+    [[nodiscard]] std::size_t take(uint64_t n, const char* what) const {
+        if (n > static_cast<uint64_t>(end - p))
+            throw std::out_of_range(std::string("glz::Reader: ") + what + " length exceeds buffer");
+        return static_cast<std::size_t>(n);
+    }
+
     // ── Primitive readers ─────────────────────────────────────────────────
 
     template <typename T>
@@ -264,9 +274,7 @@ class Reader {
     }
 
     [[nodiscard]] std::string read_string() {
-        auto n = read<uint64_t>();
-        if (p + n > end)
-            throw std::out_of_range("glz::Reader: string length exceeds buffer");
+        const auto n = take(read<uint64_t>(), "string");
         std::string s(reinterpret_cast<const char*>(p), n);
         p += n;
         return s;
@@ -274,9 +282,7 @@ class Reader {
 
     // Zero-copy string view — valid only as long as the source buffer lives.
     [[nodiscard]] std::string_view read_string_view() {
-        auto n = read<uint64_t>();
-        if (p + n > end)
-            throw std::out_of_range("glz::Reader: string_view length exceeds buffer");
+        const auto n = take(read<uint64_t>(), "string_view");
         std::string_view sv{reinterpret_cast<const char*>(p), n};
         p += n;
         return sv;
@@ -286,9 +292,11 @@ class Reader {
     template <typename T>
         requires std::is_arithmetic_v<T>
     [[nodiscard]] std::span<const T> read_span() {
-        auto n = read<uint64_t>();
-        if (p + n * sizeof(T) > end)
+        const uint64_t count = read<uint64_t>();
+        // In elements, not bytes: count * sizeof(T) would overflow first.
+        if (count > static_cast<uint64_t>(end - p) / sizeof(T))
             throw std::out_of_range("glz::Reader: span length exceeds buffer");
+        const auto n = static_cast<std::size_t>(count);
         auto sp = std::span<const T>{reinterpret_cast<const T*>(p), n};
         p += n * sizeof(T);
         return sp;
@@ -308,9 +316,13 @@ class Reader {
 
     template <typename T>
     [[nodiscard]] std::vector<T> read_vector() {
-        auto n = read<uint64_t>();
+        const uint64_t n = read<uint64_t>();
         std::vector<T> v;
-        v.reserve(n);
+        // Every element costs at least a byte, so the bytes left bound the
+        // count. Reserving n outright trusts a length the buffer could never
+        // supply, and narrows it on a 32-bit host. The loop is unchanged and
+        // each element read still bounds checks.
+        v.reserve(static_cast<std::size_t>(std::min<uint64_t>(n, static_cast<uint64_t>(end - p))));
         for (uint64_t i = 0; i < n; ++i) v.push_back(read_value<T>());
         return v;
     }
