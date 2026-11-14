@@ -74,11 +74,13 @@ HostFlatpak _host(
   _Spawns spawns, {
   Duration settle = const Duration(milliseconds: 20),
   Duration poll = const Duration(milliseconds: 2),
+  Map<String, String> environment = const {},
 }) => HostFlatpak(
   start: spawns.start,
   run: spawns.run,
   launchSettle: settle,
   launchPollInterval: poll,
+  environment: environment,
 );
 
 void main() {
@@ -283,6 +285,54 @@ void main() {
           'org.x.Y',
         ]),
       );
+    });
+
+    // flatpak-spawn --host runs `flatpak run` in the session helper's
+    // environment: without these the app opens on the session's display, not
+    // the compositor the launching app is shown on.
+    test('forwards the display it was launched on', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-ihs-0',
+          'XDG_SESSION_TYPE': 'wayland',
+          'XDG_ACTIVATION_TOKEN': 'tok',
+          'HOME': '/home/u',
+        },
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=WAYLAND_DISPLAY=wayland-ihs-0',
+        '--env=XDG_SESSION_TYPE=wayland',
+        '--env=DISPLAY=',
+      ]);
+    });
+
+    // flatpak binds any host socket it cannot keep the name of as wayland-0,
+    // so the host's real display is unknown and nothing is forwarded.
+    test('does not forward the sandbox default wayland-0', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-0',
+          'XDG_SESSION_TYPE': 'wayland',
+        },
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), ['--host']);
+    });
+
+    test('forwards nothing without a Wayland display', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {'XDG_SESSION_TYPE': 'x11', 'WAYLAND_DISPLAY': ''},
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), ['--host']);
     });
 
     test('omits flags that were not given', () async {

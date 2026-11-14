@@ -42,13 +42,55 @@ class HostFlatpak {
     ProcessRunner? run,
     Duration launchSettle = const Duration(milliseconds: 1500),
     Duration launchPollInterval = const Duration(milliseconds: 100),
+    Map<String, String>? environment,
   }) : _start = start ?? Process.start,
        _run = run ?? Process.run,
        _launchSettle = launchSettle,
-       _launchPollInterval = launchPollInterval;
+       _launchPollInterval = launchPollInterval,
+       _environment = environment ?? Platform.environment;
 
   final ProcessStarter _start;
   final ProcessRunner _run;
+
+  final Map<String, String> _environment;
+
+  /// What an app launched on the host inherits from this process, so it opens
+  /// where this app is: `flatpak-spawn --host` runs the command in the session
+  /// helper's environment, not ours, and without these the app lands on the
+  /// session's own display rather than the compositor this app is shown on.
+  static const forwardedEnvironment = <String>[
+    'WAYLAND_DISPLAY',
+    // Chromium/Electron choose Wayland over X11 only in a wayland session.
+    'XDG_SESSION_TYPE',
+  ];
+
+  /// The name flatpak gives the Wayland socket inside a sandbox whenever it
+  /// cannot keep the host's: a host name that does not start with `wayland-`,
+  /// or that contains a `/` (gamescope's `gamescope-0`, for one). Seeing it,
+  /// the host's real name is unknown, so nothing is forwarded and the launch
+  /// keeps the session helper's environment.
+  static const _sandboxDefaultWaylandDisplay = 'wayland-0';
+
+  /// `flatpak-spawn --env=` options for [forwardedEnvironment]. They are
+  /// forwarded only with a Wayland display: without one, claiming a Wayland
+  /// session would only steer Chromium/Electron away from the X11 the helper
+  /// already describes. With one, the session's X11 display is cleared too, so
+  /// an app that would fall back to X11 cannot open on the session's desktop
+  /// either. An X11-only app then fails to start rather than opening there.
+  List<String> _forwardedEnv() {
+    final display = _environment['WAYLAND_DISPLAY'];
+    if (display == null ||
+        display.isEmpty ||
+        display == _sandboxDefaultWaylandDisplay) {
+      return const [];
+    }
+    return [
+      for (final name in forwardedEnvironment)
+        if (_environment[name] case final String value when value.isNotEmpty)
+          '--env=$name=$value',
+      '--env=DISPLAY=',
+    ];
+  }
 
   /// Upper bound on how long a host-delegated `flatpak run` is given to either
   /// fail or register an instance. Only a launch that does neither — no error,
@@ -89,7 +131,7 @@ class HostFlatpak {
     String branch = '',
     String commit = '',
   }) async {
-    final args = <String>['--host', 'flatpak', 'run'];
+    final args = <String>['--host', ..._forwardedEnv(), 'flatpak', 'run'];
     if (arch.isNotEmpty) args.add('--arch=$arch');
     if (branch.isNotEmpty) args.add('--branch=$branch');
     if (commit.isNotEmpty) args.add('--commit=$commit');
