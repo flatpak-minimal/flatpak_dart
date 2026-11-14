@@ -311,7 +311,7 @@ void main() {
     });
 
     // flatpak binds any host socket it cannot keep the name of as wayland-0,
-    // so the host's real display is unknown and none is forwarded.
+    // so the host's real display is unknown and nothing is forwarded.
     test('does not forward the sandbox default wayland-0', () async {
       final spawns = _Spawns();
       await _host(
@@ -322,23 +322,17 @@ void main() {
         },
       ).launch('org.x.Y');
       final args = spawns.started.single.args;
-      expect(args.sublist(0, args.indexOf('flatpak')), [
-        '--host',
-        '--env=XDG_SESSION_TYPE=wayland',
-      ]);
+      expect(args.sublist(0, args.indexOf('flatpak')), ['--host']);
     });
 
-    test('forwards nothing unset or empty, and keeps X11 then', () async {
+    test('forwards nothing without a Wayland display', () async {
       final spawns = _Spawns();
       await _host(
         spawns,
         environment: const {'XDG_SESSION_TYPE': 'x11', 'WAYLAND_DISPLAY': ''},
       ).launch('org.x.Y');
       final args = spawns.started.single.args;
-      expect(args.sublist(0, args.indexOf('flatpak')), [
-        '--host',
-        '--env=XDG_SESSION_TYPE=x11',
-      ]);
+      expect(args.sublist(0, args.indexOf('flatpak')), ['--host']);
     });
 
     test('omits flags that were not given', () async {

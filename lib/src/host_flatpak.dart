@@ -65,27 +65,31 @@ class HostFlatpak {
   ];
 
   /// The name flatpak gives the Wayland socket inside a sandbox whenever it
-  /// cannot keep the host's: a host name that does not start with `wayland-`
+  /// cannot keep the host's: a host name that does not start with `wayland-`,
+  /// or that contains a `/` (gamescope's `gamescope-0`, for one). Seeing it,
+  /// the host's real name is unknown, so nothing is forwarded and the launch
+  /// keeps the session helper's environment.
   static const _sandboxDefaultWaylandDisplay = 'wayland-0';
 
-  /// `flatpak-spawn --env=` options for [forwardedEnvironment]. With a Wayland
-  /// display forwarded the session's X11 display is cleared too, so an app
-  /// that would fall back to X11 cannot open on the session's desktop either.
-  /// An X11-only app then fails to start rather than opening there.
+  /// `flatpak-spawn --env=` options for [forwardedEnvironment]. They are
+  /// forwarded only with a Wayland display: without one, claiming a Wayland
+  /// session would only steer Chromium/Electron away from the X11 the helper
+  /// already describes. With one, the session's X11 display is cleared too, so
+  /// an app that would fall back to X11 cannot open on the session's desktop
+  /// either. An X11-only app then fails to start rather than opening there.
   List<String> _forwardedEnv() {
-    final args = <String>[];
-    for (final name in forwardedEnvironment) {
-      final value = _environment[name];
-      if (value == null || value.isEmpty) continue;
-      if (name == 'WAYLAND_DISPLAY' && value == _sandboxDefaultWaylandDisplay) {
-        continue;
-      }
-      args.add('--env=$name=$value');
+    final display = _environment['WAYLAND_DISPLAY'];
+    if (display == null ||
+        display.isEmpty ||
+        display == _sandboxDefaultWaylandDisplay) {
+      return const [];
     }
-    if (args.any((a) => a.startsWith('--env=WAYLAND_DISPLAY='))) {
-      args.add('--env=DISPLAY=');
-    }
-    return args;
+    return [
+      for (final name in forwardedEnvironment)
+        if (_environment[name] case final String value when value.isNotEmpty)
+          '--env=$name=$value',
+      '--env=DISPLAY=',
+    ];
   }
 
   /// Upper bound on how long a host-delegated `flatpak run` is given to either
