@@ -1,5 +1,18 @@
 ## Unreleased
 
+- An app launched from a sandboxed caller now opens on the caller's
+  compositor rather than the session's desktop. `flatpak-spawn --host` runs
+  the launch in the session helper's environment, so host launches now pass
+  on the caller's `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE`, and set `DISPLAY`
+  to empty so that an app cannot fall back to the desktop's X11 display. An
+  X11-only app launched this way now fails to start instead of opening on the
+  desktop.
+
+  Nothing is passed on when the sandbox reports `wayland-0`. flatpak uses that
+  name inside the sandbox whenever it cannot keep the host's socket name
+  (gamescope's `gamescope-0`, for one), so the host's real display is unknown,
+  and the launch behaves as it did before.
+
 - `launch()` and `launchWithPermissions()` take an `activationToken`. When the
   caller is sandboxed and the launch goes through `flatpak-spawn --host`, it is
   passed to the app as `XDG_ACTIVATION_TOKEN`, so the compositor gives the
