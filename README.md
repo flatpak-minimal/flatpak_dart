@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="doc/logo/flatpak_dart-dark.svg">
+    <img src="doc/logo/flatpak_dart.svg" alt="flatpak_dart logo" width="128">
+  </picture>
+</p>
+
 # flatpak_dart
 
 Typed Dart API for managing Flatpak applications on Linux. Drives
