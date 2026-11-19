@@ -1,3 +1,13 @@
+## Unreleased
+
+- `launch()` and `launchWithPermissions()` take an `activationToken`. When the
+  caller is sandboxed and the launch goes through `flatpak-spawn --host`, it is
+  passed to the app as `XDG_ACTIVATION_TOKEN`, so the compositor gives the
+  app's first window focus. The token has to be a fresh one, requested through
+  `xdg_activation_v1` against the caller's own window just before the launch;
+  the one the caller was started with has already been used and is never
+  forwarded. The in-process libflatpak launch ignores it.
+
 ## 0.3.0
 
 - `FlatpakInstance` gains `runtime`: the full ref the instance runs against,
