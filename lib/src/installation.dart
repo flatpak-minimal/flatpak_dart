@@ -305,18 +305,30 @@ class FlatpakInstallation {
   /// reports it as `0` on a freshly launched instance, so the native side waits
   /// briefly for bwrap to write it. It is `0` if the app exits before that or
   /// the wait times out; everything else on the instance is always populated.
+  ///
+  /// [activationToken] is a fresh `xdg_activation_v1` token for the app's
+  /// first window. It is only passed on when this process is sandboxed and
+  /// the launch goes through the host; libflatpak's in-process launch takes
+  /// no environment, so there it is ignored.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
+    String activationToken = '',
   }) async {
     // libflatpak launches by exec'ing bwrap, which only exists on the host.
     // Inside a sandbox that fails with "failed to execute child process
     // bwrap", so delegate to the host through the Flatpak portal instead.
     // Needs --talk-name=org.freedesktop.Flatpak in the caller's finish-args.
     if (_host != null) {
-      return _host.launch(appId, arch: arch, branch: branch, commit: commit);
+      return _host.launch(
+        appId,
+        arch: arch,
+        branch: branch,
+        commit: commit,
+        activationToken: activationToken,
+      );
     }
 
     final port = ReceivePort('flatpak.launch');

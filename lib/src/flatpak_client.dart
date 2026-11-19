@@ -184,12 +184,24 @@ class FlatpakClient {
   ///
   /// [FlatpakInstance.childPid] is best-effort — `0` if the app exits before
   /// bwrap publishes it. Every other field is always populated.
+  ///
+  /// [activationToken] is a fresh `xdg_activation_v1` token, requested from
+  /// the compositor against the caller's window just before the launch, so
+  /// the app's first window gets focus. It is only passed on when this process
+  /// is sandboxed and the launch goes through the host.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
-  }) => _installation.launch(appId, arch: arch, branch: branch, commit: commit);
+    String activationToken = '',
+  }) => _installation.launch(
+    appId,
+    arch: arch,
+    branch: branch,
+    commit: commit,
+    activationToken: activationToken,
+  );
 
   /// Stop every running instance of [appId] across the host. Flatpak
   /// instances are not scoped to an installation, so this stops matching
@@ -258,11 +270,17 @@ class FlatpakClient {
   /// A denial does not abort the launch: the PermissionStore is advisory and
   /// the portals enforce it when the app asks for the resource. Check
   /// [LaunchWithPermissionsResult.denied] to gate the launch yourself.
+  ///
+  /// [activationToken] is passed to [launch]. The prompts can take a while
+  /// and a compositor may expire the token meanwhile; to request it after
+  /// they are answered, call [PermissionFlow.ensureLaunchPermissions] and
+  /// then [launch] yourself.
   Future<LaunchWithPermissionsResult> launchWithPermissions(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
+    String activationToken = '',
   }) async {
     final permissions = await permissionFlow.ensureLaunchPermissions(appId);
     final instance = await launch(
@@ -270,6 +288,7 @@ class FlatpakClient {
       arch: arch,
       branch: branch,
       commit: commit,
+      activationToken: activationToken,
     );
     return LaunchWithPermissionsResult(
       instance: instance,

@@ -335,6 +335,58 @@ void main() {
       expect(args.sublist(0, args.indexOf('flatpak')), ['--host']);
     });
 
+    // The token comes from the caller, never from this process's environment:
+    // the one we were started with has already been used.
+    test('forwards an activation token it is given', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-ihs-0',
+          'XDG_SESSION_TYPE': 'wayland',
+          'XDG_ACTIVATION_TOKEN': 'stale',
+        },
+      ).launch('org.x.Y', activationToken: 'fresh');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=WAYLAND_DISPLAY=wayland-ihs-0',
+        '--env=XDG_SESSION_TYPE=wayland',
+        '--env=DISPLAY=',
+        '--env=XDG_ACTIVATION_TOKEN=fresh',
+      ]);
+    });
+
+    test('launches without a token when none is given', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {
+          'WAYLAND_DISPLAY': 'wayland-ihs-0',
+          'XDG_ACTIVATION_TOKEN': 'stale',
+        },
+      ).launch('org.x.Y');
+      final args = spawns.started.single.args;
+      expect(
+        args.where((a) => a.startsWith('--env=XDG_ACTIVATION_TOKEN')),
+        isEmpty,
+      );
+      expect(args, contains('org.x.Y'));
+    });
+
+    test('forwards a token without a Wayland display to forward', () async {
+      final spawns = _Spawns();
+      await _host(
+        spawns,
+        environment: const {'WAYLAND_DISPLAY': 'wayland-0'},
+      ).launch('org.x.Y', activationToken: 'fresh');
+      final args = spawns.started.single.args;
+      expect(args.sublist(0, args.indexOf('flatpak')), [
+        '--host',
+        '--env=XDG_ACTIVATION_TOKEN=fresh',
+      ]);
+    });
+
     test('omits flags that were not given', () async {
       final spawns = _Spawns();
       await _host(spawns).launch('org.x.Y');
@@ -630,6 +682,21 @@ void main() {
       );
       await installation.launch('org.x.Y');
       expect(spawns.started.single.args.take(3), ['--host', 'flatpak', 'run']);
+    });
+
+    test('launch passes the activation token to the host', () async {
+      final spawns = _Spawns();
+      final installation = FlatpakInstallation.delegatingTo(
+        'user',
+        _host(spawns),
+      );
+      await installation.launch('org.x.Y', activationToken: 'fresh');
+      expect(spawns.started.single.args.take(4), [
+        '--host',
+        '--env=XDG_ACTIVATION_TOKEN=fresh',
+        'flatpak',
+        'run',
+      ]);
     });
 
     test('stop goes to the host', () async {

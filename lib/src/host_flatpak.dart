@@ -125,13 +125,28 @@ class HostFlatpak {
   /// Returns the instance flatpak registered for the launch. When it has not
   /// appeared in `flatpak ps` yet the returned instance carries only what is
   /// known at spawn time and [FlatpakInstance.instanceId] is empty.
+  ///
+  /// [activationToken] is passed to the app as `XDG_ACTIVATION_TOKEN`, so the
+  /// compositor gives its first window focus. It has to be a fresh token,
+  /// requested through `xdg_activation_v1` against the caller's own surface
+  /// just before the launch. The token this process was started with has
+  /// already been used, which is why nothing is read from the environment.
+  /// Empty launches without one.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
     String branch = '',
     String commit = '',
+    String activationToken = '',
   }) async {
-    final args = <String>['--host', ..._forwardedEnv(), 'flatpak', 'run'];
+    final args = <String>[
+      '--host',
+      ..._forwardedEnv(),
+      if (activationToken.isNotEmpty)
+        '--env=XDG_ACTIVATION_TOKEN=$activationToken',
+      'flatpak',
+      'run',
+    ];
     if (arch.isNotEmpty) args.add('--arch=$arch');
     if (branch.isNotEmpty) args.add('--branch=$branch');
     if (commit.isNotEmpty) args.add('--commit=$commit');
