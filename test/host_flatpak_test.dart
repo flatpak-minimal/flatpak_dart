@@ -67,6 +67,17 @@ class _Spawns {
   }
 }
 
+/// A child started with inherited stdio: its stdout and stderr cannot be
+/// read, as with [ProcessStartMode.inheritStdio].
+class _InheritedStdioProcess extends _FakeProcess {
+  _InheritedStdioProcess({super.pid, super.exitCode});
+
+  @override
+  Stream<List<int>> get stdout => throw StateError('stdio is not connected');
+  @override
+  Stream<List<int>> get stderr => throw StateError('stdio is not connected');
+}
+
 Stream<List<int>> _chunks(List<String> parts) =>
     Stream.fromIterable(parts.map(utf8.encode));
 
@@ -729,6 +740,175 @@ void main() {
       );
       final got = await installation.listRunning();
       expect(got.single.appId, 'org.a.A');
+    });
+  });
+
+  group('HostFlatpak.child', () {
+    // Two instances of one app: an older one, and the one this launch's
+    // `flatpak run` (pid 4242) starts. Only the parent of the bwrap pid tells
+    // them apart.
+    const ps =
+        'org.gnome.Chess\t111\taarch64\tstable\taaaaaaaaaaaa\torg.freedesktop.Platform\tstable\t5000\t5002\n'
+        'org.gnome.Chess\t222\taarch64\tstable\taaaaaaaaaaaa\torg.freedesktop.Platform\tstable\t6000\t6002\n';
+
+    ({
+      HostFlatpak host,
+      List<({String exe, List<String> args})> started,
+      List<({String exe, List<String> args})> ran,
+    })
+    child({String installation = 'system'}) {
+      final started = <({String exe, List<String> args})>[];
+      final ran = <({String exe, List<String> args})>[];
+      final host = HostFlatpak.child(
+        installation: installation,
+        start: (exe, args) async {
+          started.add((exe: exe, args: args));
+          return _FakeProcess(pid: 4242);
+        },
+        run: (exe, args) async {
+          ran.add((exe: exe, args: args));
+          return ProcessResult(0, 0, ps, '');
+        },
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => pid == 6000 ? 4242 : 1,
+      );
+      return (host: host, started: started, ran: ran);
+    }
+
+    test('runs flatpak itself, for its installation', () async {
+      final c = child();
+      await c.host.launch('org.gnome.Chess');
+      final call = c.started.single;
+      expect(call.exe, 'flatpak');
+      expect(call.args, ['run', '--system', '--', 'org.gnome.Chess']);
+      expect(c.ran.first.exe, 'flatpak');
+      expect(c.ran.first.args.first, 'ps');
+    });
+
+    test('hands the activation token to the app', () async {
+      final c = child(installation: 'user');
+      await c.host.launch('org.gnome.Chess', activationToken: 'tok');
+      expect(c.started.single.args, [
+        'run',
+        '--user',
+        '--env=XDG_ACTIVATION_TOKEN=tok',
+        '--',
+        'org.gnome.Chess',
+      ]);
+    });
+
+    test('returns its own instance, not an earlier one', () async {
+      final got = await child().host.launch('org.gnome.Chess');
+      expect(got.instanceId, '222');
+    });
+
+    test('leaves the app\'s output to the stdio it inherits', () async {
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async => _InheritedStdioProcess(pid: 6000),
+        run: (exe, args) async => ProcessResult(0, 0, ps, ''),
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => 1,
+      );
+      final got = await host.launch('org.gnome.Chess');
+      expect(got.instanceId, '222');
+    });
+
+    test('reports a failed run without reading its output', () async {
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async =>
+            _InheritedStdioProcess(pid: 4242, exitCode: Future.value(1)),
+        run: (exe, args) async => ProcessResult(0, 0, '', ''),
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => 1,
+      );
+      await expectLater(
+        host.launch('org.gnome.Chess'),
+        throwsA(
+          isA<FlatpakLaunchException>().having(
+            (e) => e.message,
+            'message',
+            contains('exited 1'),
+          ),
+        ),
+      );
+    });
+
+    test('a run still going past the settle takes no older instance', () async {
+      // Only instance 111 is up, and it is not this run's: the launch has
+      // not registered yet when the settle ends.
+      const older =
+          'org.gnome.Chess\t111\taarch64\tstable\taaaaaaaaaaaa\torg.freedesktop.Platform\tstable\t5000\t5002\n';
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async => _FakeProcess(pid: 4242),
+        run: (exe, args) async => ProcessResult(0, 0, older, ''),
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => 1,
+      );
+      final got = await host.launch('org.gnome.Chess');
+      expect(got.instanceId, isEmpty);
+      expect(got.isRunning, isTrue);
+    });
+
+    test('a run that only activated takes the running instance', () async {
+      // `flatpak run` exits 0 at once when it hands over to an instance
+      // that is already up.
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async =>
+            _FakeProcess(pid: 4242, exitCode: Future.value(0)),
+        run: (exe, args) async => ProcessResult(0, 0, ps, ''),
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => 1,
+      );
+      final got = await host.launch('org.gnome.Chess');
+      expect(got.instanceId, '111');
+    });
+
+    test('a start that fails otherwise is a launch failure', () async {
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async => throw const FormatException('bad env'),
+        run: (exe, args) async => ProcessResult(0, 0, ps, ''),
+      );
+      await expectLater(
+        host.launch('org.gnome.Chess'),
+        throwsA(isA<FlatpakLaunchException>()),
+      );
+    });
+
+    test('takes the instance the child exec\'d into', () async {
+      // `flatpak run` in the foreground execs bwrap: the instance's pid is
+      // the child's own.
+      final started = <({String exe, List<String> args})>[];
+      final host = HostFlatpak.child(
+        installation: 'system',
+        start: (exe, args) async {
+          started.add((exe: exe, args: args));
+          return _FakeProcess(pid: 6000);
+        },
+        run: (exe, args) async => ProcessResult(0, 0, ps, ''),
+        launchSettle: const Duration(milliseconds: 20),
+        launchPollInterval: const Duration(milliseconds: 2),
+        parentOf: (pid) => 1,
+      );
+      final got = await host.launch('org.gnome.Chess');
+      expect(got.instanceId, '222');
+    });
+  });
+
+  group('FlatpakInstallation launcher', () {
+    test('an installation at a path has no child launcher', () {
+      // A path cannot be named to `flatpak run`, so constructing one must
+      // not try to make a child launcher for it.
+      expect(() => FlatpakInstallation('/tmp/x'), returnsNormally);
     });
   });
 }
