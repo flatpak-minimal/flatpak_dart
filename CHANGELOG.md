@@ -1,5 +1,15 @@
 ## Unreleased
 
+- On the host, `launch()` for the user and system installations runs a child
+  `flatpak run` instead of launching in-process. libflatpak puts the caller's
+  own pid in the app's systemd scope, so a launcher moved into the first app's
+  scope and was stopped with it; now the child moves. The child gets the
+  caller's current environment, including a `WAYLAND_DISPLAY` set with
+  setenv(3) after startup, and the caller's stdout and stderr, so a failed
+  run's message is in the caller's log rather than in the exception.
+  `activationToken` is passed on here too. An installation at a path keeps the
+  in-process launch, which ignores the token.
+
 - An app launched from a sandboxed caller now opens on the caller's
   compositor rather than the session's desktop. `flatpak-spawn --host` runs
   the launch in the session helper's environment, so host launches now pass

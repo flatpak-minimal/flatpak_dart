@@ -26,12 +26,27 @@ class FlatpakInstallation {
   /// directly. Injectable so the delegation is testable off a real sandbox.
   final HostFlatpak? _host;
 
-  FlatpakInstallation(this.name, {HostFlatpak? host})
-    : _host = host ?? (HostFlatpak.isSandboxed ? HostFlatpak() : null);
+  /// On the host, for the user and system installations: launches as a child
+  /// `flatpak run`, so this process stays out of the app's systemd scope. See
+  /// [HostFlatpak.child]. An installation at a path has no `flatpak run`
+  /// option, and launches in-process.
+  final HostFlatpak? _launcher;
+
+  FlatpakInstallation(this.name, {HostFlatpak? host, HostFlatpak? launcher})
+    : _host = host ?? (HostFlatpak.isSandboxed ? HostFlatpak() : null),
+      _launcher =
+          launcher ??
+          (host == null &&
+                  !HostFlatpak.isSandboxed &&
+                  (name == 'user' || name == 'system')
+              ? HostFlatpak.child(installation: name)
+              : null);
 
   /// Builds an installation that always delegates to [host], regardless of
   /// whether this process is really sandboxed.
-  FlatpakInstallation.delegatingTo(this.name, HostFlatpak host) : _host = host;
+  FlatpakInstallation.delegatingTo(this.name, HostFlatpak host)
+    : _host = host,
+      _launcher = null;
 
   /// Invalidate libflatpak's cached data so subsequent reads return fresh results.
   void dropCaches() => FlatpakBindings.readerDropCaches(_handle);
@@ -307,9 +322,8 @@ class FlatpakInstallation {
   /// the wait times out; everything else on the instance is always populated.
   ///
   /// [activationToken] is a fresh `xdg_activation_v1` token for the app's
-  /// first window. It is only passed on when this process is sandboxed and
-  /// the launch goes through the host; libflatpak's in-process launch takes
-  /// no environment, so there it is ignored.
+  /// first window. libflatpak's in-process launch, used only for an
+  /// installation at a path, takes no environment, so there it is ignored.
   Future<FlatpakInstance> launch(
     String appId, {
     String arch = '',
@@ -323,6 +337,15 @@ class FlatpakInstallation {
     // Needs --talk-name=org.freedesktop.Flatpak in the caller's finish-args.
     if (_host != null) {
       return _host.launch(
+        appId,
+        arch: arch,
+        branch: branch,
+        commit: commit,
+        activationToken: activationToken,
+      );
+    }
+    if (_launcher != null) {
+      return _launcher.launch(
         appId,
         arch: arch,
         branch: branch,
